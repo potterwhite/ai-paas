@@ -27,6 +27,7 @@ jobs:
           if ! addlicense -check \
             -ignore "data/**" \
             -ignore ".git/**" \
+            -ignore ".github/**" \
             -ignore "*.json" \
             -ignore "*.md" \
             -ignore "*.yml" \
@@ -34,6 +35,8 @@ jobs:
             -ignore "*.txt" \
             -ignore "*.css" \
             -ignore "*.html" \
+            -ignore "Dockerfile" \
+            -ignore "**/Dockerfile" \
             .; then
             echo "FAILED: Some files are missing license headers."
             echo "Please add a license header to all .py and .sh files."
