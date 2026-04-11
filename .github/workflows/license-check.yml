@@ -1,0 +1,42 @@
+name: License Header Check
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  check-license:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install addlicense tool
+        run: go install github.com/google/addlicense@latest
+
+      - name: Run License Check
+        run: |
+          echo "Checking for license headers..."
+          if ! addlicense -check \
+            -ignore "data/**" \
+            -ignore ".git/**" \
+            -ignore "*.json" \
+            -ignore "*.md" \
+            -ignore "*.yml" \
+            -ignore "*.yaml" \
+            -ignore "*.txt" \
+            -ignore "*.css" \
+            -ignore "*.html" \
+            .; then
+            echo "FAILED: Some files are missing license headers."
+            echo "Please add a license header to all .py and .sh files."
+            exit 1
+          fi
+          echo "SUCCESS: All source files have license headers."
