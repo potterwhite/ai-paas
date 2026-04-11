@@ -1,0 +1,94 @@
+{
+  "last_node_id": 4,
+  "last_link_id": 5,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "pos": [50, 80],
+      "size": [315, 314],
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [1]},
+        {"name": "MASK",  "type": "MASK",  "links": []}
+      ],
+      "properties": {},
+      "widgets_values": ["portrait.png", "image"],
+      "color": "#232",
+      "bgcolor": "#353"
+    },
+    {
+      "id": 2,
+      "type": "VHS_LoadVideo",
+      "pos": [50, 450],
+      "size": [315, 220],
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE",        "type": "IMAGE",   "links": [2]},
+        {"name": "frame_count",  "type": "INT",     "links": []},
+        {"name": "audio",        "type": "AUDIO",   "links": []},
+        {"name": "video_info",   "type": "VHS_VIDEOINFO","links": []}
+      ],
+      "properties": {},
+      "widgets_values": {
+        "video": "driving_video.mp4",
+        "force_rate": 0,
+        "custom_width": 0,
+        "custom_height": 0,
+        "frame_load_cap": 0,
+        "skip_first_frames": 0,
+        "select_every_nth": 1
+      }
+    },
+    {
+      "id": 3,
+      "type": "AdvancedLivePortrait",
+      "pos": [430, 240],
+      "size": [400, 300],
+      "inputs": [
+        {"name": "src_image",  "type": "IMAGE", "link": 1},
+        {"name": "motion_images", "type": "IMAGE", "link": 2}
+      ],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [3]}],
+      "properties": {},
+      "widgets_values": [0.0, 0.0, 1.7, true, "", false, ""]
+    },
+    {
+      "id": 4,
+      "type": "VHS_VideoCombine",
+      "pos": [900, 240],
+      "size": [340, 240],
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 3}],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": {
+        "frame_rate": 25,
+        "loop_count": 0,
+        "filename_prefix": "LivePortrait_Drive",
+        "format": "video/h264-mp4",
+        "pix_fmt": "yuv420p",
+        "crf": 19,
+        "save_metadata": true,
+        "pingpong": false,
+        "save_output": true
+      }
+    }
+  ],
+  "links": [
+    [1, 1, 0, 3, 0, "IMAGE"],
+    [2, 2, 0, 3, 1, "IMAGE"],
+    [3, 3, 0, 4, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {"scale": 0.7, "offset": [0, 0]},
+    "info": {
+      "name": "05 — Digital Human: LivePortrait Video Drive",
+      "description": "Upload a portrait photo + a driving video → the portrait face animates to match the driving video's head movements and expressions. Upload files to ComfyUI /input folder.",
+      "model": "LivePortrait (ComfyUI-AdvancedLivePortrait node, auto-downloads ~350MB on first run)",
+      "vram_required": "< 4 GB"
+    }
+  },
+  "version": 0.4
+}

@@ -1,0 +1,272 @@
+  # ============================================================
+  # YAML anchor: shared vLLM base config (DRY for multi-model)
+  # Each model gets its own service below with a unique profile.
+  # Only ONE vllm instance runs at a time (VRAM exclusive).
+  # Port 9997 is shared — no conflict since they're mutually exclusive.
+  # Router orchestrates switching via Docker SDK start/stop.
+  # First-time setup: docker compose --profile llm-xxx up -d vllm-xxx
+  # ============================================================
+x-vllm-base: &vllm-base
+  image: vllm/vllm-openai:latest
+  restart: "no"   # Profile-gated, managed by Router — not auto-restarted by Docker daemon
+  ports:
+    - "9997:8000"  # External 9997 (backward compat), internal vLLM default 8000
+  environment:
+    - VLLM_ENABLE_V1_MULTIPROCESSING=0
+    - VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1  # vLLM v0.18+ accurate CUDA graph memory accounting
+  volumes:
+    - ${MODELS_PATH:-./models}:/models    # Unified model storage — set MODELS_PATH in .env
+  shm_size: 8gb
+  ipc: host
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu, compute, utility]
+  networks:
+    - default
+
+services:
+  # ============================================================
+  # 1a. vLLM — Qwen 2.5 32B AWQ (production default)
+  #     Profile: llm-qwen | Container: ai_vllm_qwen
+  #     Set COMPOSE_PROFILES=llm-qwen in .env for auto-start
+  # ============================================================
+  vllm-qwen:
+    <<: *vllm-base
+    container_name: ai_vllm_qwen
+    profiles: ["llm-qwen"]
+    command:
+      - --model
+      - /models/qwen2.5-32b-instruct-awq  # Production 32B AWQ model (upgraded 2026-04-02)
+      - --gpu-memory-utilization
+      - "0.985"  # With VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1: accounts for CUDA graph pool (~1GB); 23.56*0.985=23.2GB < 23.3GB free
+      - --max-model-len
+      - "10080"  # Reduced from 10800: with VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1 the KV cache ceiling dropped; 10080 is vLLM's suggested max
+      - --trust-remote-code
+      - --enable-auto-tool-choice        # Required for OpenClaw/agent tool calls
+      - --tool-call-parser
+      - hermes                           # Qwen2.5 uses Hermes-style tool call format
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+
+  # ============================================================
+  # 1b. vLLM — Gemma 4 26B A4B (MoE, placeholder — needs AWQ quantization)
+  #     Profile: llm-gemma | Container: ai_vllm_gemma
+  #     ⚠️ Model weights not yet available. Container definition ready.
+  #     Download quantized model to /models/gemma-4-26B-A4B-awq first.
+  # ============================================================
+  vllm-gemma:
+    <<: *vllm-base
+    container_name: ai_vllm_gemma
+    profiles: ["llm-gemma"]
+    command:
+      - --model
+      - /models/gemma-4-26B-A4B-awq      # MoE 25.2B total / 3.8B active — AWQ ~13GB
+      - --gpu-memory-utilization
+      - "0.90"  # MoE ~13GB AWQ; conservative to leave headroom
+      - --max-model-len
+      - "8192"  # Conservative start; tune after VRAM profiling
+      - --trust-remote-code
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+
+  # ============================================================
+  # ⛔ DISABLED (Phase 4.5): LiteLLM replaced by Router
+  # 2. LiteLLM PostgreSQL — was: postgres backing store
+  # 3. LiteLLM API gateway — was: model routing + key management
+  # Replaced by services/router (FastAPI + SQLite + API key middleware)
+  # ============================================================
+  # litellm-db: ...  (see archived litellm notes in docs/)
+  # litellm: ...     (router:4000 now owns /v1/chat/completions)
+
+  # ============================================================
+  # 4. Speaches (faster-whisper-server) - Speech-to-Text (STT)
+  #    OpenAI-compatible /v1/audio/transcriptions endpoint
+  #    Phase 2 Step 2.2 — deployed 2026-03-30
+  #    Image: ghcr.io/speaches-ai/speaches (repo renamed from fedirz/faster-whisper-server)
+  #    Model: Systran/faster-whisper-large-v3 (~3-4 GB VRAM)
+  #    VRAM budget: vLLM=~17GB + Whisper=~4GB = ~21GB of 24GB
+  #    NOTE: PRELOAD_MODELS does NOT auto-download. After first start, download model via:
+  #    curl -X POST http://192.168.0.19:9998/v1/models/Systran%2Ffaster-whisper-large-v3
+  # ============================================================
+  whisper:
+    image: ghcr.io/speaches-ai/speaches:latest-cuda
+    container_name: ai_whisper
+    restart: unless-stopped
+    ports:
+      - "9998:8000"
+    environment:
+      - WHISPER__INFERENCE_DEVICE=cuda
+      - WHISPER__COMPUTE_TYPE=float16
+      # PRELOAD_MODELS is parsed but only queues download — model still needs POST /v1/models/{id}
+      # to actually download. Kept here for documentation of intended default model.
+      - PRELOAD_MODELS=["Systran/faster-whisper-large-v3"]
+    volumes:
+      - whisper_model_cache:/home/ubuntu/.cache/huggingface/hub  # HF model cache (persists across restarts)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - default
+
+  # ============================================================
+  # 5. ComfyUI — Visual generation (video / digital human)
+  #    Phase 3 Step 3.2 — image tested 2026-03-31
+  #    Phase 3 Step 3.3 — CogVideoX-5B workflow; CLI_ARGS fixed 2026-04-01
+  #    Image: yanwk/comfyui-boot:cu130-slim-v2 (CUDA 13.0 native, slim)
+  #    Port: 8188 (ComfyUI default)
+  #    ⚠️ NEVER start while ai_vllm is running — VRAM exclusive
+  #    restart: no — must be started manually (Phase 2 /gpu panel or CLI)
+  #    Models: ${MODELS_PATH}/comfyui/{checkpoints,vae,...} per ComfyUI layout
+  # ============================================================
+  # ⚠️ ComfyUI is isolated via Docker Compose profile "comfyui".
+  # It will NOT start with `docker compose up -d` — must use `docker compose --profile comfyui up -d`.
+  # NEVER run with vLLM simultaneously — GPU VRAM conflict (both need full 24GB).
+  # Profile: comfyui | Port: 8188 | Manual-only, no auto-restart
+  comfyui:
+    image: yanwk/comfyui-boot:cu130-slim-v2
+    container_name: ai_comfyui
+    profiles: ["comfyui"]   # Only starts with `docker compose --profile comfyui up -d`
+    restart: "no"
+    ports:
+      - "8188:8188"
+    volumes:
+      - ${MODELS_PATH:-./models}/comfyui:/root/ComfyUI/models        # ComfyUI models — set MODELS_PATH in .env
+      - ${COMFYUI_MODELS_HDD:-/dev/null}:/mnt/hdd_models                     # Optional: secondary HDD mount
+      - ./data/comfyui_workdir:/root/ComfyUI                          # ComfyUI state + installed custom nodes
+      - ./data/comfyui_extra_model_paths.yaml:/root/ComfyUI/extra_model_paths.yaml
+      - ./data/comfyui_workflows:/root/ComfyUI/workflows              # Pre-bundled workflows (git-tracked)
+      - ./services/comfyui/setup.sh:/root/ComfyUI/setup.sh:ro        # Auto-setup script (git-tracked)
+      - ./services/comfyui/user-scripts:/root/user-scripts           # pre-start.sh hook (git-tracked, needs rw for exec)
+    environment:
+      # No --lowvram: ComfyUI runs exclusively with full 24 GB (vLLM is stopped before ComfyUI starts).
+      # --lowvram would unnecessarily degrade CogVideoX quality. RTX 3090 = 24 GB exclusive.
+      - CLI_ARGS=--listen 0.0.0.0 --port 8188
+      - COMFYUI_MODELS_HDD=/mnt/hdd_models                                    # HDD mount path inside container
+      - HF_TOKEN=${HF_TOKEN:-}                                                 # Optional: HuggingFace token for gated models
+      - TZ=Asia/Hong_Kong                                                      # Container timezone (Hong Kong)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - default
+
+  # ============================================================
+  # 6. Router Redis — Celery broker + result backend
+  # ============================================================
+  router-redis:
+    image: redis:7-alpine
+    container_name: ai_router_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - ./data/router_redis:/data
+    networks:
+      - default
+
+  # ============================================================
+  # 7. Router — GPU Orchestrator (Phase 4)
+  #    FastAPI + Celery + Redis + SQLite
+  #    Replaces LiteLLM in Phase 4.5
+  # ============================================================
+  router:
+    build: ./services/router
+    container_name: ai_router
+    restart: unless-stopped
+    ports:
+      - "4000:4000"  # Phase 4.5: replaced LiteLLM
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${MODELS_PATH:-./models}:/models
+      - ./data/router_db:/app/db  # SQLite task persistence
+    environment:
+      - ROUTER_PORT=4000
+      - REDIS_URL=redis://ai_router_redis:6379/0
+      - CELERY_BROKER_URL=redis://ai_router_redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://ai_router_redis:6379/2
+      - DATABASE_URL=sqlite+aiosqlite:///./db/router.db
+      - VLLM_BASE_URL=http://ai_vllm_qwen:8000  # Default; Router uses VLLM_MODELS registry for multi-model
+      - WHISPER_BASE_URL=http://ai_whisper:8000
+      - COMFYUI_BASE_URL=http://ai_comfyui:8188
+      - ROUTER_API_KEY=${LITELLM_MASTER_KEY:-sk-change-me}
+      - MODELS_ROOT=/models
+    depends_on:
+      - router-redis
+    networks:
+      - default
+
+  # ============================================================
+  # 7b. Router Celery Worker — async GPU switching + task queue
+  # ============================================================
+  router-worker:
+    build: ./services/router
+    container_name: ai_router_worker
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker SDK for container control
+    environment:
+      - CELERY_BROKER_URL=redis://ai_router_redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://ai_router_redis:6379/2
+      - VLLM_BASE_URL=http://ai_vllm_qwen:8000  # Default; Router uses VLLM_MODELS registry for multi-model
+      - WHISPER_BASE_URL=http://ai_whisper:8000
+      - COMFYUI_BASE_URL=http://ai_comfyui:8188
+      - MODELS_ROOT=/models
+    depends_on:
+      - router-redis
+    networks:
+      - default
+    command: ["celery", "-A", "app.core.celery_app", "worker", "--loglevel", "info", "--concurrency", "2"]
+
+  # ============================================================
+  # 8. Web App — Unified UI (subtitle / translate / GPU panel / model manager)
+  #    Phase 2 Steps 2.4–2.7; model manager added 2026-04-02
+  #    Accessible at http://192.168.0.19:8888
+  #    Routes: / /subtitle /translate /gpu /models
+  # ============================================================
+  webapp:
+    build: ./services/webapp
+    container_name: ai_webapp
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    environment:
+      - LITELLM_BASE_URL=http://ai_router:4000/v1
+      - LITELLM_API_KEY=${LITELLM_MASTER_KEY:-sk-1234}
+      - WHISPER_BASE_URL=http://ai_whisper:8000/v1
+      - LLM_MODEL=qwen
+      - WHISPER_MODEL=Systran/faster-whisper-large-v3
+      - MODELS_ROOT=/models                   # path inside container where model weights live
+      - COMFYUI_MODELS_HDD=${COMFYUI_MODELS_HDD:-}  # host path for large ComfyUI models
+      - VLLM_CONTAINER=ai_vllm_qwen            # default container name; webapp delegates to Router for switching
+      - HF_TOKEN=${HF_TOKEN:-}               # optional: HuggingFace token for gated models
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # GPU panel: docker API + nvidia-smi via exec into vllm containers
+      - ${MODELS_PATH:-./models}:/models                       # model manager: read/write model weights
+    networks:
+      - default
+    depends_on:
+      - router
+      - whisper
+
+networks:
+  default:
+    external: true
+    name: ai_paas_network
+
+volumes:
+  whisper_model_cache:

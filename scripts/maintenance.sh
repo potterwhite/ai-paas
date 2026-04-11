@@ -1,0 +1,109 @@
+#!/bin/bash
+# Maintenance functions for ai-paas controller
+
+# Source core functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${SCRIPT_DIR}/scripts/core.sh"
+
+# Repair directory permissions - can fix specific directories or default to data/
+fix_permissions() {
+    check_dir
+
+    # If a directory is specified as first argument, use it; otherwise use DATA_DIR
+    local target_dir="${1:-${DATA_DIR}}"
+    
+    if [[ -n "$target_dir" ]]; then
+        log_info "Fixing permissions for directory: $target_dir"
+        
+        if [[ -d "$target_dir" ]]; then
+            # Use 2>/dev/null || true to suppress permission errors and continue
+            sudo chown -R "$(id -u):$(id -g)" "$target_dir" 2>/dev/null || true
+            sudo find "$target_dir" -type d -exec chmod 755 {} \; 2>/dev/null || true
+            sudo find "$target_dir" -type f -exec chmod 644 {} \; 2>/dev/null || true
+            log_info "Permissions fixed for: $target_dir"
+        else
+            log_warn "Directory not found: $target_dir"
+            return 1
+        fi
+    else
+        log_warn "No directory specified for permission fixing"
+        return 1
+    fi
+}
+
+# Reset router database only
+reset_router() {
+    check_dir
+
+    log_warn "This will delete the router SQLite database and Redis data."
+    log_warn "All routing history and task queues will be lost."
+
+    if confirm "Reset router database?"; then
+        # Stop services first
+        stop_services
+
+        # Remove router data
+        rm -rf "${DATA_DIR}/router_db/"*
+        rm -rf "${DATA_DIR}/router_redis/"*
+
+        log_info "Router database reset complete."
+        log_info "Use 'start' to restart services with fresh router state."
+    else
+        log_info "Reset cancelled."
+    fi
+}
+
+# Show help
+show_help() {
+    cat << EOF
+ai-paas Controller - Management script for the ai-paas platform
+
+Usage: $0 <command> [options]
+
+Commands:
+
+  Service Management:
+    status           Show running containers and their health
+    start            Start all ai-paas services (uses docker-compose up -d)
+    stop             Stop all ai-paas services
+    restart          Stop and start all services
+
+  Logs & Monitoring:
+    logs [container] Show logs for a container or all containers
+                      Options: container name (ai_vllm, ai_webapp, etc.) or 'all'
+    disk-usage       Show disk usage for project, data, and models
+    check-deps       Check all dependencies (models, config, Docker, GPU)
+
+  Data & Models:
+    clean-data       Stop services and clean all runtime data (preserves workflows)
+    clean-models     Interactive model cleanup (selective delete)
+    cleanall         Full cleanup: stops services, cleans data AND all models
+
+   System Maintenance:
+     fix-permissions  Fix ownership/permissions on directories (default: data/)
+     reset-router     Reset router database and Redis only
+     prepare          Download/manage models for ComfyUI or vLLM
+                      Usage: prepare [comfyui|vllm]
+                        comfyui  Download ComfyUI preset models (~40 GB) via container setup.sh
+                        vllm     Show configured model, list available models, switch instructions
+     help             Show this help message
+
+Examples:
+    $0 status                  # Check which containers are running
+    $0 logs ai_vllm            # Follow logs for vLLM container
+    $0 logs all                # Show logs from all containers sequentially
+    $0 check-deps              # Verify all dependencies are ready
+    $0 cleanall                # Full cleanup (data + models)
+    $0 prepare comfyui         # Download ComfyUI preset models (~40 GB)
+    $0 prepare vllm            # Show vLLM model info and switch instructions
+    $0 clean-data              # Clean runtime data only
+
+Auto-Completion:
+    To enable bash auto-completion, source the completion script:
+        source paas-controller-completion.bash
+    Or add to your ~/.bashrc:
+        source /path/to/ai-paas/paas-controller-completion.bash
+
+Note: Always run from the ai-paas project root directory.
+EOF
+}

@@ -1,0 +1,50 @@
+#!/bin/bash
+# Service management functions for ai-paas controller
+
+# Source core functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${SCRIPT_DIR}/scripts/core.sh"
+
+# Show all running ai-paas containers
+show_containers() {
+    log_info "ai-paas container status:"
+    docker ps --filter "name=ai_" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+}
+
+# Stop ai-paas services (except external ones like harbor)
+stop_services() {
+    log_info "Stopping ai-paas services..."
+    cd "${SCRIPT_DIR}"
+    docker compose -f "${DOCKER_COMPOSE_FILE}" down
+    log_info "Services stopped."
+}
+
+# Start ai-paas services
+start_services() {
+    # Check if vLLM model exists before starting
+    local vllm_model_path="${MODELS_DIR}/qwen2.5-32b-instruct-awq"
+    if [[ ! -d "${vllm_model_path}" || ! -f "${vllm_model_path}/config.json" ]]; then
+        log_error "vLLM model not found or incomplete: ${vllm_model_path}"
+        log_error "Please download the model first:"
+        log_error "  1. Install git-lfs: sudo apt-get install git-lfs"
+        log_error "  2. Run: git lfs install"
+        log_error "  3. Run: git clone https://huggingface.co/Qwen/Qwen2.5-32B-Instruct-AWQ ${vllm_model_path}"
+        log_error ""
+        log_error "Or use Python with huggingface_hub:"
+        log_error "  pip install huggingface_hub"
+        log_error "  python -c \"from huggingface_hub import snapshot_download; snapshot_download(repo_id='Qwen/Qwen2.5-32B-Instruct-AWQ', local_dir='${vllm_model_path}')\""
+        return 1
+    fi
+
+    log_info "Starting ai-paas services..."
+    cd "${SCRIPT_DIR}"
+    docker compose -f "${DOCKER_COMPOSE_FILE}" up -d
+    log_info "Services started."
+}
+
+# Restart ai-paas services
+restart_services() {
+    stop_services
+    sleep 2
+    start_services
+}
