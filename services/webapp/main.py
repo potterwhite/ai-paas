@@ -55,6 +55,7 @@ HF_TOKEN         = os.getenv("HF_TOKEN", "")                    # optional; set 
 
 # ── ComfyUI model storage config ──
 COMFYUI_MODELS_HDD = os.getenv("COMFYUI_MODELS_HDD", "")        # host path for large models (HDD)
+COMFYUI_WORKFLOWS_DIR = os.getenv("COMFYUI_WORKFLOWS_DIR", "/comfyui_workflows")  # built-in workflow JSONs
 
 # Containers the GPU panel is allowed to start/stop (whitelist — safety)
 GPU_MANAGED_CONTAINERS = ["ai_vllm_qwen", "ai_vllm_gemma", "ai_whisper", "ai_comfyui"]
@@ -1203,35 +1204,12 @@ async def comfyui_page():
 </div>
 
 <div class="card">
-  <h2>预置工作流（开箱即用）</h2>
+  <h2>内置工作流（开箱即用）</h2>
   <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
-    以下 3 条工作流已预置在 ComfyUI 容器内，启动 ComfyUI 后可直接使用。
+    以下工作流已预置在 ComfyUI 容器内。下载 JSON 后拖入 ComfyUI 界面即可使用。
   </p>
-  <div style="display:flex;flex-direction:column;gap:12px">
-    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
-      <span style="font-size:24px">🖼️</span>
-      <div style="flex:1">
-        <div style="font-weight:600;margin-bottom:4px">文生图 — SD 1.5</div>
-        <div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">输入文字提示词，生成 512×512 图像。使用 Stable Diffusion 1.5 模型 (v1-5-pruned-emaonly)。</div>
-        <div id="model-status-sd" style="font-size:12px"></div>
-      </div>
-    </div>
-    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
-      <span style="font-size:24px">🎥</span>
-      <div style="flex:1">
-        <div style="font-weight:600;margin-bottom:4px">图生视频 — CogVideoX-5B</div>
-        <div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">输入一张图片 + 文字描述，生成几秒的短视频。模型约 13 GB，建议存放在 HDD 中。</div>
-        <div id="model-status-cogvideo" style="font-size:12px"></div>
-      </div>
-    </div>
-    <div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
-      <span style="font-size:24px">🧑</span>
-      <div style="flex:1">
-        <div style="font-weight:600;margin-bottom:4px">数字人 — LivePortrait</div>
-        <div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">上传一张人脸照片，编辑表情/表情幅度，生成带表情的头像动画视频。</div>
-        <div id="model-status-liveportrait" style="font-size:12px"></div>
-      </div>
-    </div>
+  <div id="workflow-browser" style="display:flex;flex-direction:column;gap:20px">
+    <div style="color:var(--text-dim);font-size:13px">加载工作流列表…</div>
   </div>
 </div>
 <div id="comfyui-model-paths-card" class="card" style="display:none">
@@ -1240,9 +1218,9 @@ async def comfyui_page():
 </div>
 
 <div class="card">
-  <h2>如何获取额外的工作流</h2>
+  <h2>如何获取更多工作流</h2>
   <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">
-    预置的 3 条工作流满足基础场景。如需更多工作流（文生视频、图像放大、LoRA 等），可通过以下方式获取：
+    除了以上内置工作流外，如需更多工作流（图像放大、LoRA 等），可通过以下方式获取：
   </p>
   <ol style="font-size:13px;color:var(--text-dim);line-height:2.2;padding-left:20px">
     <li><strong>推荐：</strong>访问 <a href="https://comfyworkflows.com/" target="_blank" rel="noopener">ComfyWorkflows.com</a>，专门的 ComfyUI 工作流社区，每个工作流都有预览图和一键下载</li>
@@ -1410,62 +1388,96 @@ function cancelComfyUIPrompt() {
   document.getElementById('comfyui-actions-default').style.display = 'flex';
 }
 
-// ── ComfyUI Model Status ──
-async function loadComfyUIModelStatus() {
+// ── ComfyUI Workflow Browser ──
+var _categoryLabels = {image: '图像生成', video: '视频生成', digital_human: '数字人'};
+
+async function loadWorkflowBrowser() {
+  var browser = document.getElementById('workflow-browser');
   try {
-    var r = await fetch('/api/comfyui/model-status');
-    if (!r.ok) return;
-    var d = await r.json();
-    var models = d.models || {};
+    var [wfRes, msRes] = await Promise.all([
+      fetch('/api/comfyui/workflows'),
+      fetch('/api/comfyui/model-status')
+    ]);
+    if (!wfRes.ok || !msRes.ok) throw new Error('API error');
+    var wfData = await wfRes.json();
+    var msData = await msRes.json();
+    var workflows = wfData.workflows || [];
+    var wfStatus = msData.workflows || {};
 
-    // SD 1.5 status
-    var sdEl = document.getElementById('model-status-sd');
-    if (sdEl && models.sd) {
-      sdEl.innerHTML = models.sd.ready
-        ? '<span style="color:var(--green)">\u2705 模型已就绪</span>'
-        : '<span style="color:var(--warn)">\u26a0\ufe0f 缺少: ' + (models.sd.missing_files || []).join(', ') + '</span>';
+    if (workflows.length === 0) {
+      browser.innerHTML = '<div style="color:var(--text-dim);font-size:13px">未找到内置工作流</div>';
+      return;
     }
 
-    // CogVideoX status
-    var cvEl = document.getElementById('model-status-cogvideo');
-    if (cvEl && models.cogvideo) {
-      cvEl.innerHTML = models.cogvideo.ready
-        ? '<span style="color:var(--green)">\u2705 模型已就绪</span>'
-        : '<span style="color:var(--warn)">\u26a0\ufe0f 需要下载 CogVideoX-5B 模型 (~13 GB)</span>';
+    // Group by category
+    var groups = {};
+    for (var i = 0; i < workflows.length; i++) {
+      var wf = workflows[i];
+      var cat = wf.category || 'other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(wf);
     }
 
-    // LivePortrait status
-    var lpEl = document.getElementById('model-status-liveportrait');
-    if (lpEl && models.liveportrait) {
-      var p = models.liveportrait;
-      lpEl.innerHTML = p.ready
-        ? '<span style="color:var(--green)">\u2705 模型已就绪 (' + p.present + '/' + p.total + ')</span>'
-        : '<span style="color:var(--warn)">\u26a0\ufe0f 缺少 ' + (p.total - p.present) + '/' + p.total + ' 个文件</span>';
+    var html = '';
+    var catOrder = ['image', 'video', 'digital_human', 'other'];
+    for (var ci = 0; ci < catOrder.length; ci++) {
+      var cat = catOrder[ci];
+      var items = groups[cat];
+      if (!items || items.length === 0) continue;
+      var catLabel = _categoryLabels[cat] || cat;
+      html += '<div>';
+      html += '<h3 style="font-size:14px;color:var(--text-dim);margin-bottom:10px;border-bottom:1px solid var(--border);padding-bottom:6px">' + catLabel + '</h3>';
+      html += '<div style="display:flex;flex-direction:column;gap:10px">';
+      for (var j = 0; j < items.length; j++) {
+        var w = items[j];
+        var mg = w.model_group;
+        var ready = mg && wfStatus[mg] ? wfStatus[mg].ready : false;
+        var statusBadge = mg
+          ? (ready
+            ? '<span class="badge badge-green" style="font-size:11px">模型就绪</span>'
+            : '<span class="badge badge-yellow" style="font-size:11px">需下载模型</span>')
+          : '';
+        html += '<div style="display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">';
+        html += '<span style="font-size:24px">' + w.icon + '</span>';
+        html += '<div style="flex:1;min-width:0">';
+        html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">';
+        html += '<span style="font-weight:600">' + w.name + '</span>';
+        html += statusBadge;
+        html += '</div>';
+        html += '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px">' + w.description + '</div>';
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+        html += '<a href="/api/comfyui/workflows/' + w.filename + '" download class="btn btn-ghost" style="font-size:12px;padding:4px 10px">下载 JSON</a>';
+        html += '</div>';
+        html += '</div></div>';
+      }
+      html += '</div></div>';
     }
+    browser.innerHTML = html;
 
     // HDD config banner
     var card = document.getElementById('comfyui-model-paths-card');
     var content = document.getElementById('comfyui-model-paths-content');
     if (card && content) {
-      if (d.hdd_set) {
+      if (msData.hdd_set) {
         card.style.display = 'block';
-        content.innerHTML = '<p style="font-size:13px;color:var(--green);margin-bottom:8px">\u2705 HDD 模型路径已配置: <code>' + d.hdd_path + '</code></p>'
-          + '<p style="font-size:13px;color:var(--text-dim)">大型模型（如 CogVideoX）可放在此目录，ComfyUI 会自动扫描。</p>';
+        content.innerHTML = '<p style="font-size:13px;color:var(--green);margin-bottom:8px">\u2705 HDD \u6a21\u578b\u8def\u5f84\u5df2\u914d\u7f6e: <code>' + msData.hdd_path + '</code></p>'
+          + '<p style="font-size:13px;color:var(--text-dim)">\u5927\u578b\u6a21\u578b\uff08\u5982 CogVideoX\uff09\u53ef\u653e\u5728\u6b64\u76ee\u5f55\uff0cComfyUI \u4f1a\u81ea\u52a8\u626b\u63cf\u3002</p>';
       } else {
         card.style.display = 'block';
         content.innerHTML = '<div style="padding:16px;background:var(--bg);border:1px solid var(--warn);border-radius:8px">'
-          + '<p style="font-size:14px;margin-bottom:8px">\u26a0\ufe0f 尚未配置 HDD 模型路径</p>'
-          + '<p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">大模型（如 CogVideoX ~13 GB）建议存放在 HDD 中。请在 <code>.env</code> 文件中设置：</p>'
+          + '<p style="font-size:14px;margin-bottom:8px">\u26a0\ufe0f \u5c1a\u672a\u914d\u7f6e HDD \u6a21\u578b\u8def\u5f84</p>'
+          + '<p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">\u5927\u6a21\u578b\uff08\u5982 CogVideoX ~13 GB\uff09\u5efa\u8bae\u5b58\u653e\u5728 HDD \u4e2d\u3002\u8bf7\u5728 <code>.env</code> \u6587\u4ef6\u4e2d\u8bbe\u7f6e\uff1a</p>'
           + '<code style="font-size:12px;display:block;padding:8px;background:var(--bg);border-radius:4px">COMFYUI_MODELS_HDD=/mnt/hdd/comfyui-models</code>'
-          + '<p style="font-size:12px;color:var(--text-dim);margin-top:8px">设置后需重启 Docker 栈: <code>cd ~/ai-paas && docker compose up -d</code></p>'
+          + '<p style="font-size:12px;color:var(--text-dim);margin-top:8px">\u8bbe\u7f6e\u540e\u9700\u91cd\u542f Docker \u6808: <code>cd ~/ai-paas && docker compose up -d</code></p>'
           + '</div>';
       }
     }
   } catch(e) {
-    console.warn('Failed to load ComfyUI model status:', e);
+    browser.innerHTML = '<div style="color:var(--warn);font-size:13px">\u52a0\u8f7d\u5de5\u4f5c\u6d41\u5217\u8868\u5931\u8d25: ' + e.message + '</div>';
+    console.warn('Failed to load workflow browser:', e);
   }
 }
-loadComfyUIModelStatus();
+loadWorkflowBrowser();
 </script>
 """
     return page("视觉生成", "/comfyui", body)
@@ -3113,6 +3125,12 @@ async def api_comfyui_model_status():
             "ready": all(results[k]["ready"] for k in ["sd15"]),
             "total_size": results["sd15"]["size_gb"] if "sd15" in results else 0,
         },
+        "sdxl_workflow": {
+            "label": "文生图 — SDXL",
+            "models": ["sdxl"],
+            "ready": all(results[k]["ready"] for k in ["sdxl"]),
+            "total_size": results["sdxl"]["size_gb"] if "sdxl" in results else 0,
+        },
         "cogvideo_workflow": {
             "label": "图生视频 — CogVideoX-5B",
             "models": ["cogvideo_transformer", "cogvideo_vae", "cogvideo_t5", "cogvideo_tokenizer"],
@@ -3267,6 +3285,91 @@ async def api_comfyui_download_progress(task_id: str):
         "current_downloaded_bytes": task["current_downloaded_bytes"],
         "total_downloaded_bytes": task["total_downloaded_bytes"],
     })
+
+
+# ── Built-in workflow browser ───────────────────────────────────────────────
+# Maps workflow filename prefix to the model-status workflow key
+_WORKFLOW_MODEL_MAP = {
+    "01_image_sd15":       "sd_workflow",
+    "02_image_sdxl":       "sdxl_workflow",
+    "03_video_cogvideox":  "cogvideo_workflow",
+    "04_video_cogvideox":  "cogvideo_workflow",
+    "05_digital_human":    "liveportrait_workflow",
+    "06_digital_human":    "liveportrait_workflow",
+}
+
+_WORKFLOW_ICONS = {
+    "01": "\U0001f5bc\ufe0f",   # framed picture
+    "02": "\U0001f3a8",         # palette
+    "03": "\U0001f3ac",         # clapper
+    "04": "\U0001f3ac",         # clapper
+    "05": "\U0001f9d1",         # person
+    "06": "\U0001f60a",         # smile
+}
+
+_WORKFLOW_CATEGORIES = {
+    "01": "image",
+    "02": "image",
+    "03": "video",
+    "04": "video",
+    "05": "digital_human",
+    "06": "digital_human",
+}
+
+
+@app.get("/api/comfyui/workflows")
+async def api_comfyui_workflows():
+    """List all built-in ComfyUI workflows with metadata."""
+    wf_dir = Path(COMFYUI_WORKFLOWS_DIR)
+    if not wf_dir.is_dir():
+        return JSONResponse({"workflows": [], "error": "Workflows directory not found"})
+
+    workflows = []
+    for fp in sorted(wf_dir.glob("*.json")):
+        try:
+            data = json.loads(fp.read_text())
+        except Exception:
+            continue
+        info = data.get("extra", {}).get("info", {})
+        prefix = fp.stem[:2]
+        # Find matching model group key
+        model_group = None
+        for pat, group in _WORKFLOW_MODEL_MAP.items():
+            if fp.stem.startswith(pat):
+                model_group = group
+                break
+
+        workflows.append({
+            "id": fp.stem,
+            "filename": fp.name,
+            "name": info.get("name", fp.stem),
+            "description": info.get("description", ""),
+            "icon": _WORKFLOW_ICONS.get(prefix, "\U0001f4c4"),
+            "category": _WORKFLOW_CATEGORIES.get(prefix, "other"),
+            "model_group": model_group,
+        })
+
+    return JSONResponse({"workflows": workflows})
+
+
+@app.get("/api/comfyui/workflows/{filename}")
+async def api_comfyui_workflow_download(filename: str):
+    """Download a single built-in workflow JSON file."""
+    # Sanitize: only allow .json files, no path traversal
+    if not filename.endswith(".json") or "/" in filename or "\\" in filename or ".." in filename:
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+
+    fp = Path(COMFYUI_WORKFLOWS_DIR) / filename
+    if not fp.is_file():
+        return JSONResponse({"error": "Workflow not found"}, status_code=404)
+
+    content = fp.read_bytes()
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 @app.post("/api/container/stop/{container_name}")
 async def stop_container(container_name: str):
