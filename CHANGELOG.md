@@ -1,0 +1,20 @@
+# Changelog
+
+## [2.0.0](https://github.com/potterwhite/ai-paas/compare/v1.0.0...v2.0.0) (2026-04-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* squashed full development history (Phase 1–4.7) into single initial commit.
+
+### ✨ Added
+
+* initial release — AI-PaaS private GPU compute platform v1.0.0 ([036ba70](https://github.com/potterwhite/ai-paas/commit/036ba7057d4d2c350c37ef394fc13e0f543f140b))
+
+
+### 🐛 Fixed
+
+* add license header to .bash file; exclude Dockerfile and .github from CI check ([6143a01](https://github.com/potterwhite/ai-paas/commit/6143a01a9a4d19fcc7a37ff1a36b9a7deeeb927d))
+* add license header to .bash file; exclude Dockerfile and .github from CI check ([6143a01](https://github.com/potterwhite/ai-paas/commit/6143a01a9a4d19fcc7a37ff1a36b9a7deeeb927d))
+* add license header to .bash file; exclude Dockerfile and .github from CI check ([d9bc62b](https://github.com/potterwhite/ai-paas/commit/d9bc62be7897a945bdec721d4f416014451d5668))
+* use recursive glob patterns in license-check CI to match subdirectory files ([c136575](https://github.com/potterwhite/ai-paas/commit/c136575ecde81439954105e22118bad5e0a87848))
