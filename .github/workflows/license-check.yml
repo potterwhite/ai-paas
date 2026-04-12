@@ -28,13 +28,13 @@ jobs:
             -ignore "data/**" \
             -ignore ".git/**" \
             -ignore ".github/**" \
-            -ignore "*.json" \
-            -ignore "*.md" \
-            -ignore "*.yml" \
-            -ignore "*.yaml" \
-            -ignore "*.txt" \
-            -ignore "*.css" \
-            -ignore "*.html" \
+            -ignore "**/*.json" \
+            -ignore "**/*.md" \
+            -ignore "**/*.yml" \
+            -ignore "**/*.yaml" \
+            -ignore "**/*.txt" \
+            -ignore "**/*.css" \
+            -ignore "**/*.html" \
             -ignore "Dockerfile" \
             -ignore "**/Dockerfile" \
             .; then
