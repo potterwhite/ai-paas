@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0](https://github.com/potterwhite/ai-paas/compare/v2.0.0...v2.1.0) (2026-04-12)
+
+
+### ✨ Added
+
+* add ComfyUI workflow browser ([5253a9f](https://github.com/potterwhite/ai-paas/commit/5253a9f343b7be19431d3e56bcf2461d8ffc9b26))
+* add ComfyUI workflow browser — discover and download all 6 built-in workflows ([795c48c](https://github.com/potterwhite/ai-paas/commit/795c48c1d378627d7193744ed0c8894893d96d0f))
+
 ## [2.0.0](https://github.com/potterwhite/ai-paas/compare/v1.0.0...v2.0.0) (2026-04-12)
 
 
