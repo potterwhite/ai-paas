@@ -48,3 +48,6 @@
 
 （2026-04-09 MODELS_PATH 根因修复 + 硬编码路径清理已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-09.md`）
 
+- [ ] 现在我内置了这么多的comfyUI的工作流，无法让我选择导入吗？那么内置有什么用呢？请教我如何使用这些内置的工作流。
+
+✅ **ComfyUI 工作流浏览器**（2026-04-12）：webapp `/comfyui` 页面新增动态工作流浏览器，展示全部 6 条内置工作流（按图像/视频/数字人分类），每条工作流显示名称、描述、模型就绪状态和下载 JSON 按钮。新增 `/api/comfyui/workflows` 列表接口和 `/api/comfyui/workflows/{filename}` 下载接口。

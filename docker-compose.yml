@@ -257,6 +257,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # GPU panel: docker API + nvidia-smi via exec into vllm containers
       - ${MODELS_PATH:-./models}:/models                       # model manager: read/write model weights
+      - ./data/comfyui_workflows:/comfyui_workflows:ro         # built-in workflow JSONs for browser UI
     networks:
       - default
     depends_on:
