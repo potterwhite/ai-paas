@@ -176,8 +176,9 @@ prepare_comfyui() {
     echo ""
     log_info "ComfyUI preset model download"
     echo "  Script : ${container_setup_sh}"
-    echo "  Models : SD 1.5 (~4 GB), SDXL (~7 GB), CogVideoX-5B (~21 GB), LivePortrait (~350 MB)"
-    echo "  Total  : ~40 GB — may take several hours depending on network speed"
+    echo "  Models : SD 1.5 (~4 GB), SDXL (~7 GB), CogVideoX-5B (~21 GB),"
+    echo "           T5-XXL fp8 (~4.9 GB), LivePortrait (~350 MB)"
+    echo "  Total  : ~45 GB — may take several hours depending on network speed"
     echo ""
 
     if ! confirm "Proceed with download?"; then
