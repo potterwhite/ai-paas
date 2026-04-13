@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/potterwhite/ai-paas/compare/v2.1.0...v2.1.1) (2026-04-13)
+
+
+### 🐛 Fixed
+
+* resolve ComfyUI workflow import errors + improve download UX ([#8](https://github.com/potterwhite/ai-paas/issues/8)) ([363bf3d](https://github.com/potterwhite/ai-paas/commit/363bf3d7e335a2d5bcaddf0335157a58199e34bd))
+
 ## [2.1.0](https://github.com/potterwhite/ai-paas/compare/v2.0.0...v2.1.0) (2026-04-12)
 
 
