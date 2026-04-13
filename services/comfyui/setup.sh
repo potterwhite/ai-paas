@@ -181,6 +181,21 @@ install_node "ComfyUI-VideoHelperSuite" \
 install_node "ComfyUI-AdvancedLivePortrait" \
     "https://github.com/PowerHouseMan/ComfyUI-AdvancedLivePortrait.git"
 
+# Compatibility patch: CogVideoXWrapper's CogVideoXLatentFormat doesn't inherit
+# from ComfyUI's LatentFormat base class and is missing latent_rgb_factors_reshape.
+# This causes AttributeError when ComfyUI core tries to create a latent previewer.
+# Patch: add the missing attribute if not already present.
+COGVIDEO_PIPELINE="$NODES_DIR/ComfyUI-CogVideoXWrapper/pipeline_cogvideox.py"
+if [ -f "$COGVIDEO_PIPELINE" ]; then
+    if ! grep -q "latent_rgb_factors_reshape" "$COGVIDEO_PIPELINE"; then
+        echo "  [patch] Adding latent_rgb_factors_reshape to CogVideoXLatentFormat..."
+        sed -i '/latent_rgb_factors_bias.*=.*\[/a\    latent_rgb_factors_reshape = None' "$COGVIDEO_PIPELINE"
+        echo "  [done] Compatibility patch applied"
+    else
+        echo "  [skip] CogVideoXLatentFormat patch (already applied or upstream fixed)"
+    fi
+fi
+
 # ── 2. CogVideoX-5B (~26 GB) ────────────────────────────────────────────────
 
 step_header 2 "$TOTAL_STEPS" "CogVideoX-5B — video generation models (~26 GB)"
