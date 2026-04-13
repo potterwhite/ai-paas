@@ -139,6 +139,12 @@ for f in tokenizer_config.json spiece.model special_tokens_map.json added_tokens
     dl_small "$HF/tokenizer/$f" "$MODELS_BASE/tokenizers/t5xxl/$f"
 done
 
+# T5-XXL fp8 single-file (required by built-in workflows using CLIPLoader)
+T5_FP8="$MODELS_BASE/text_encoders/t5xxl_fp8_e4m3fn.safetensors"
+dl "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors" \
+   "$T5_FP8" \
+   "T5-XXL fp8 single-file (~4.9 GB)"
+
 # ── 3. LivePortrait (~350 MB) ─────────────────────────────────────────────────
 
 echo ""
@@ -189,6 +195,16 @@ dl "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.s
    "SDXL VAE fp16-fix (~160 MB)"
 
 # ── done ──────────────────────────────────────────────────────────────────────
+
+# Copy built-in workflows to ComfyUI native Browse UI directory
+# so they appear in the sidebar when users open ComfyUI
+WF_SRC="/root/ComfyUI/workflows"
+WF_DST="/root/ComfyUI/user/default/workflows"
+if [ -d "$WF_SRC" ] && ls "$WF_SRC"/*.json >/dev/null 2>&1; then
+    mkdir -p "$WF_DST"
+    cp -u "$WF_SRC"/*.json "$WF_DST/" 2>/dev/null || true
+    echo "  [sync] Copied built-in workflows to ComfyUI Browse UI"
+fi
 
 echo ""
 echo "════════════════════════════════════════"

@@ -33,10 +33,8 @@
 
 （2026-04-12 release-please + license header + comfyUI 工作流浏览器等已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
 
-- [ ] comfyUI我导入下载到本地的工作流，还是出这个错误："Value not in list
+✅ **ComfyUI 工作流导入修复 + 内置工作流原生浏览**（2026-04-13）：根因：workflow JSON 引用单文件模型名（`cogvideox5b_bf16.safetensors`、`t5xxl_fp8_e4m3fn.safetensors`），但下载脚本从 HuggingFace 获取的是分片格式。修复：(1) CogVideoX 工作流改用 `DownloadAndLoadCogVideoModel`（支持分片目录加载）；(2) 新增 T5-XXL fp8 单文件下载（4.9GB，CLIPLoader 兼容）；(3) setup.sh 自动同步工作流到 ComfyUI Browse UI。
 
-clip_name: 't5xxl_fp8_e4m3fn.safetensors' not in ['t5xxl/model-00001-of-00002.safetensors', 't5xxl/model-00002-of-00002.safetensors']"
-"Value not in list
-
-model: 'cogvideox5b_bf16.safetensors' not in ['cogvideox5b/diffusion_pytorch_model-00001-of-00002.safetensors', 'cogvideox5b/diffusion_pytorch_model-00002-of-00002.safetensors']"
 - [ ] 到底内置工作流是怎么打开的？能不能打开comfyUI就出现在网页里，直接可以选择呢？
+
+↑ 已解决：setup.sh 现在会自动将工作流复制到 ComfyUI 的 `user/default/workflows/` 目录，打开 ComfyUI 即可在侧栏 Browse 中直接选择。

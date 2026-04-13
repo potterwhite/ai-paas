@@ -3030,10 +3030,16 @@ COMFYUI_MODELS = {
         "desc": "CogVideoX 视频编解码器",
     },
     "cogvideo_t5": {
-        "label": "CogVideoX T5-XXL",
+        "label": "CogVideoX T5-XXL (fp8)",
+        "files": [f"{MODELS_ROOT}/comfyui/text_encoders/t5xxl_fp8_e4m3fn.safetensors"],
+        "size_gb": 4.9,
+        "desc": "T5-XXL fp8 文本编码器（CLIPLoader 单文件版）",
+    },
+    "cogvideo_t5_bf16": {
+        "label": "CogVideoX T5-XXL (BF16 shards)",
         "dirs": [f"{MODELS_ROOT}/comfyui/text_encoders/t5xxl"],
         "size_gb": 9.5,
-        "desc": "CogVideoX 文本编码器",
+        "desc": "T5-XXL BF16 原始分片（参考用）",
     },
     "cogvideo_tokenizer": {
         "label": "CogVideoX Tokenizer",

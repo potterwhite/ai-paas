@@ -4,45 +4,38 @@
   "nodes": [
     {
       "id": 1,
-      "type": "CogVideoXModelLoader",
+      "type": "DownloadAndLoadCogVideoModel",
       "pos": [50, 80],
-      "size": [340, 120],
+      "size": [340, 180],
       "inputs": [],
-      "outputs": [{"name": "model", "type": "COGVIDEOMODEL", "links": [1]}],
-      "properties": {},
-      "widgets_values": ["cogvideox5b_bf16.safetensors", "bf16", "disabled", "main_device"]
-    },
-    {
-      "id": 2,
-      "type": "CogVideoXVAELoader",
-      "pos": [50, 260],
-      "size": [340, 70],
-      "inputs": [],
-      "outputs": [{"name": "vae", "type": "VAE", "links": [2, 3]}],
-      "properties": {},
-      "widgets_values": ["cogvideox5b_vae.safetensors", "bf16"]
+      "outputs": [
+        {"name": "model", "type": "COGVIDEOMODEL", "links": [1]},
+        {"name": "vae", "type": "VAE", "links": [2, 3]}
+      ],
+      "properties": {"Node name for S&R": "DownloadAndLoadCogVideoModel"},
+      "widgets_values": ["THUDM/CogVideoX-5b-I2V", "bf16", "disabled", false, "sdpa", "main_device"]
     },
     {
       "id": 3,
       "type": "CLIPLoader",
-      "pos": [50, 390],
+      "pos": [50, 320],
       "size": [340, 80],
       "inputs": [],
-      "outputs": [{"name": "CLIP", "type": "CLIP", "links": [4, 5]}],
-      "properties": {},
+      "outputs": [{"name": "CLIP", "type": "CLIP", "links": [4, 5], "slot_index": 0, "shape": 3}],
+      "properties": {"Node name for S&R": "CLIPLoader"},
       "widgets_values": ["t5xxl_fp8_e4m3fn.safetensors", "sd3"]
     },
     {
       "id": 10,
       "type": "LoadImage",
-      "pos": [50, 530],
+      "pos": [50, 460],
       "size": [315, 314],
       "inputs": [],
       "outputs": [
         {"name": "IMAGE", "type": "IMAGE", "links": [11]},
         {"name": "MASK",  "type": "MASK",  "links": []}
       ],
-      "properties": {},
+      "properties": {"Node name for S&R": "LoadImage"},
       "widgets_values": ["input_image.png", "image"]
     },
     {
@@ -52,7 +45,7 @@
       "size": [440, 160],
       "inputs": [{"name": "clip", "type": "CLIP", "link": 4}],
       "outputs": [{"name": "conditioning", "type": "CONDITIONING", "links": [6]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "CogVideoTextEncode"},
       "widgets_values": ["The person in the image begins to smile warmly, gentle head movement, natural breathing, soft lighting, cinematic 4K", 1, false]
     },
     {
@@ -62,7 +55,7 @@
       "size": [440, 100],
       "inputs": [{"name": "clip", "type": "CLIP", "link": 5}],
       "outputs": [{"name": "conditioning", "type": "CONDITIONING", "links": [7]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "CogVideoTextEncode"},
       "widgets_values": ["", 1, true]
     },
     {
@@ -75,7 +68,7 @@
         {"name": "start_image", "type": "IMAGE", "link": 11}
       ],
       "outputs": [{"name": "samples", "type": "LATENT", "links": [12]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "CogVideoImageEncode"},
       "widgets_values": [false, 0.0]
     },
     {
@@ -90,7 +83,7 @@
         {"name": "samples",  "type": "LATENT",        "link": 12}
       ],
       "outputs": [{"name": "samples", "type": "LATENT", "links": [9]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "CogVideoSampler"},
       "widgets_values": [49, 50, 6.0, 0, "fixed", "CogVideoXDDIM", 1]
     },
     {
@@ -103,7 +96,7 @@
         {"name": "samples", "type": "LATENT","link": 9}
       ],
       "outputs": [{"name": "images", "type": "IMAGE", "links": [10]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "CogVideoDecode"},
       "widgets_values": [true, 240, 360, 0.2, 0.2, true]
     },
     {
@@ -113,7 +106,7 @@
       "size": [340, 240],
       "inputs": [{"name": "images", "type": "IMAGE", "link": 10}],
       "outputs": [],
-      "properties": {},
+      "properties": {"Node name for S&R": "VHS_VideoCombine"},
       "widgets_values": {
         "frame_rate": 8,
         "loop_count": 0,
@@ -129,8 +122,8 @@
   ],
   "links": [
     [1,  1,  0, 7,  0, "COGVIDEOMODEL"],
-    [2,  2,  0, 11, 0, "VAE"],
-    [3,  2,  0, 8,  0, "VAE"],
+    [2,  1,  1, 11, 0, "VAE"],
+    [3,  1,  1, 8,  0, "VAE"],
     [4,  3,  0, 4,  0, "CLIP"],
     [5,  3,  0, 5,  0, "CLIP"],
     [6,  4,  0, 7,  1, "CONDITIONING"],
@@ -146,8 +139,9 @@
     "ds": {"scale": 0.5, "offset": [0, 0]},
     "info": {
       "name": "04 — CogVideoX-5B Image to Video",
-      "description": "Upload an image → 6-second animated video. The model animates the image according to the text prompt. Load input_image.png from ComfyUI /input folder.",
-      "model": "cogvideox5b_bf16.safetensors",
+      "description": "Upload an image → 6-second animated video. Uses DownloadAndLoadCogVideoModel (auto-loads THUDM/CogVideoX-5b-I2V sharded weights). Load input_image.png from ComfyUI /input folder.",
+      "model": "THUDM/CogVideoX-5b-I2V (auto-loaded from HuggingFace cache)",
+      "text_encoder": "t5xxl_fp8_e4m3fn.safetensors (fp8 single-file, CLIPLoader)",
       "vram_required": "~14-16 GB"
     }
   },
