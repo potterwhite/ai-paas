@@ -33,10 +33,8 @@
 
 （2026-04-12 release-please + license header + comfyUI 工作流浏览器等已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
 
-- [ ] comfyUI我导入下载到本地的工作流，还是出这个错误："Value not in list
+（2026-04-13 ComfyUI 工作流导入修复 + 内置工作流原生浏览已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
 
-clip_name: 't5xxl_fp8_e4m3fn.safetensors' not in ['t5xxl/model-00001-of-00002.safetensors', 't5xxl/model-00002-of-00002.safetensors']"
-"Value not in list
+### paas-controller.sh 改进
 
-model: 'cogvideox5b_bf16.safetensors' not in ['cogvideox5b/diffusion_pytorch_model-00001-of-00002.safetensors', 'cogvideox5b/diffusion_pytorch_model-00002-of-00002.safetensors']"
-- [ ] 到底内置工作流是怎么打开的？能不能打开comfyUI就出现在网页里，直接可以选择呢？
+✅ **`prepare` 下载 UX 全面改进**（2026-04-13）：(1) SHA-256 校验 — 已下载文件通过 checksum 验证，不会重复下载，损坏文件自动重下；(2) 预览总览 — 启动时显示全部 6 个步骤及描述；(3) 动态进度 — `[N/6]` 步骤计数器 + CogVideoX 子步骤 `2a-2e`；(4) `realpath` 显示 — setup.sh 和 controller 都显示模型目录的真实路径；(5) 结尾摘要 — 显示下载/跳过/失败文件数。

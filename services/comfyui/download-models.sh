@@ -32,11 +32,15 @@
 # Or run INSIDE the container (writes directly to model paths):
 #   docker exec ai_comfyui bash -c "$(cat services/comfyui/download-models.sh)"
 #
-# Models downloaded (total ~21 GB):
+# Models downloaded (total ~26 GB):
 #   diffusion_models/cogvideox5b/  — Transformer weights (2 shards, ~11 GB)
 #   vae/cogvideox5b_vae.safetensors — VAE encoder/decoder (~862 MB)
-#   text_encoders/t5xxl/           — T5-XXL text encoder (2 shards, ~9.5 GB)
+#   text_encoders/t5xxl/           — T5-XXL text encoder BF16 (2 shards, ~9.5 GB)
+#   text_encoders/t5xxl_fp8_e4m3fn.safetensors — T5-XXL fp8 single-file (~4.9 GB)
 #   tokenizers/t5xxl/              — T5 tokenizer files
+#
+# The fp8 single-file T5-XXL is required by built-in workflows (CLIPLoader).
+# The BF16 sharded T5-XXL is kept for reference / advanced use.
 #
 # Inside container paths map to host $MODELS_PATH/comfyui/ (set in .env)
 # ==============================================================================
@@ -106,7 +110,7 @@ dl_small "$HF_BASE/vae/config.json" \
          "$MODELS_BASE/vae/cogvideox5b_vae_config.json"
 
 echo ""
-echo "[3/4] T5-XXL text encoder (~9.5 GB)..."
+echo "[3/5] T5-XXL text encoder BF16 shards (~9.5 GB)..."
 dl "$HF_BASE/text_encoder/model-00001-of-00002.safetensors" \
    "$MODELS_BASE/text_encoders/t5xxl/model-00001-of-00002.safetensors" \
    "T5 shard 1 (4.99 GB)"
@@ -119,7 +123,14 @@ dl_small "$HF_BASE/text_encoder/model.safetensors.index.json" \
          "$MODELS_BASE/text_encoders/t5xxl/model.safetensors.index.json"
 
 echo ""
-echo "[4/4] Tokenizer files..."
+echo "[4/5] T5-XXL fp8 single-file for CLIPLoader (~4.9 GB)..."
+T5_FP8_URL="https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn.safetensors"
+dl "$T5_FP8_URL" \
+   "$MODELS_BASE/text_encoders/t5xxl_fp8_e4m3fn.safetensors" \
+   "T5-XXL fp8 single-file (4.89 GB)"
+
+echo ""
+echo "[5/5] Tokenizer files..."
 for f in tokenizer_config.json spiece.model special_tokens_map.json added_tokens.json; do
     dl_small "$HF_BASE/tokenizer/$f" "$MODELS_BASE/tokenizers/t5xxl/$f"
 done

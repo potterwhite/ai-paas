@@ -1,13 +1,13 @@
 {
-  "_comment": "CogVideoX-5B BF16 Text-to-Video Workflow — Phase 3 Step 3.3",
+  "_comment": "CogVideoX-5B BF16 Text-to-Video Workflow — Phase 3 Step 3.3 (updated: DownloadAndLoadCogVideoModel for sharded weights)",
   "_info": {
-    "model_file": "models/diffusion_models/cogvideox5b_bf16.safetensors (11.14 GB, merged from THUDM shards)",
-    "vae_file": "models/vae/cogvideox5b_vae.safetensors",
-    "clip_file": "models/text_encoders/t5xxl_fp8_e4m3fn.safetensors",
+    "model": "THUDM/CogVideoX-5b (auto-loaded, supports sharded weights)",
+    "clip_file": "models/text_encoders/t5xxl_fp8_e4m3fn.safetensors (fp8 single-file)",
     "nodes_required": ["ComfyUI-CogVideoXWrapper (kijai)", "ComfyUI-VideoHelperSuite (Kosinkadink)"],
     "vram_estimate": "~18-22 GB BF16 + VAE tiling",
     "output": "49 frames @ 8fps = ~6 seconds, 720x480",
     "created": "2026-04-01",
+    "updated": "2026-04-13",
     "phase": "Phase 3 Step 3.3",
     "source": "adapted from ComfyUI-CogVideoXWrapper/example_workflows/cogvideox_1_0_5b_T2V_02.json"
   },
@@ -78,7 +78,7 @@
     },
     {
       "id": 36,
-      "type": "CogVideoXModelLoader",
+      "type": "DownloadAndLoadCogVideoModel",
       "pos": {"0": 645, "1": 17},
       "size": {"0": 315, "1": 218},
       "flags": {},
@@ -89,29 +89,15 @@
         {"name": "model", "type": "COGVIDEOMODEL", "links": [70]},
         {"name": "vae", "type": "VAE", "links": [71], "slot_index": 1}
       ],
-      "properties": {"Node name for S&R": "CogVideoXModelLoader"},
+      "properties": {"Node name for S&R": "DownloadAndLoadCogVideoModel"},
       "widgets_values": [
-        "cogvideox5b_bf16.safetensors",
+        "THUDM/CogVideoX-5b",
         "bf16",
         "disabled",
-        "main_device",
-        false
+        false,
+        "sdpa",
+        "main_device"
       ]
-    },
-    {
-      "id": 2,
-      "type": "CogVideoXVAELoader",
-      "pos": {"0": 645, "1": 260},
-      "size": {"0": 315, "1": 60},
-      "flags": {},
-      "order": 2,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {"name": "vae", "type": "VAE", "links": [71], "slot_index": 0}
-      ],
-      "properties": {"Node name for S&R": "CogVideoXVAELoader"},
-      "widgets_values": ["cogvideox5b_vae.safetensors"]
     },
     {
       "id": 37,
@@ -210,7 +196,7 @@
     [68,  31,  0, 35,  2, "CONDITIONING"],
     [69,  35,  0, 11,  1, "LATENT"],
     [70,  36,  0, 35,  0, "COGVIDEOMODEL"],
-    [71,   2,  0, 11,  0, "VAE"],
+    [71,  36,  1, 11,  0, "VAE"],
     [72,  37,  0, 35,  3, "LATENT"]
   ],
   "groups": [],

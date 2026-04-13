@@ -4,32 +4,25 @@
   "nodes": [
     {
       "id": 1,
-      "type": "CogVideoXModelLoader",
+      "type": "DownloadAndLoadCogVideoModel",
       "pos": [50, 80],
-      "size": [340, 120],
+      "size": [340, 180],
       "inputs": [],
-      "outputs": [{"name": "model", "type": "COGVIDEOMODEL", "links": [1]}],
-      "properties": {},
-      "widgets_values": ["cogvideox5b_bf16.safetensors", "bf16", "disabled", "main_device"]
-    },
-    {
-      "id": 2,
-      "type": "CogVideoXVAELoader",
-      "pos": [50, 250],
-      "size": [340, 70],
-      "inputs": [],
-      "outputs": [{"name": "vae", "type": "VAE", "links": [2, 3]}],
-      "properties": {},
-      "widgets_values": ["cogvideox5b_vae.safetensors", "bf16"]
+      "outputs": [
+        {"name": "model", "type": "COGVIDEOMODEL", "links": [1]},
+        {"name": "vae", "type": "VAE", "links": [2, 3]}
+      ],
+      "properties": {"Node name for S&R": "DownloadAndLoadCogVideoModel"},
+      "widgets_values": ["THUDM/CogVideoX-5b", "bf16", "disabled", false, "sdpa", "main_device"]
     },
     {
       "id": 3,
       "type": "CLIPLoader",
-      "pos": [50, 380],
+      "pos": [50, 320],
       "size": [340, 80],
       "inputs": [],
-      "outputs": [{"name": "CLIP", "type": "CLIP", "links": [4, 5]}],
-      "properties": {},
+      "outputs": [{"name": "CLIP", "type": "CLIP", "links": [4, 5], "slot_index": 0, "shape": 3}],
+      "properties": {"Node name for S&R": "CLIPLoader"},
       "widgets_values": ["t5xxl_fp8_e4m3fn.safetensors", "sd3"]
     },
     {
@@ -39,7 +32,7 @@
       "size": [440, 160],
       "inputs": [{"name": "clip", "type": "CLIP", "link": 4}],
       "outputs": [{"name": "conditioning", "type": "CONDITIONING", "links": [6]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "CogVideoTextEncode"},
       "widgets_values": ["A serene mountain landscape at golden hour, mist rolling through pine forests, cinematic 4K, smooth camera movement, breathtaking scenery", 1, false]
     },
     {
@@ -49,7 +42,7 @@
       "size": [440, 100],
       "inputs": [{"name": "clip", "type": "CLIP", "link": 5}],
       "outputs": [{"name": "conditioning", "type": "CONDITIONING", "links": [7]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "CogVideoTextEncode"},
       "widgets_values": ["", 1, true]
     },
     {
@@ -59,7 +52,7 @@
       "size": [315, 82],
       "inputs": [],
       "outputs": [{"name": "LATENT", "type": "LATENT", "links": [8]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "EmptyLatentImage"},
       "widgets_values": [720, 480, 1]
     },
     {
@@ -74,7 +67,7 @@
         {"name": "samples",  "type": "LATENT",        "link": 8}
       ],
       "outputs": [{"name": "samples", "type": "LATENT", "links": [9]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "CogVideoSampler"},
       "widgets_values": [49, 50, 6.0, 0, "fixed", "CogVideoXDDIM", 1]
     },
     {
@@ -87,7 +80,7 @@
         {"name": "samples", "type": "LATENT","link": 9}
       ],
       "outputs": [{"name": "images", "type": "IMAGE", "links": [10]}],
-      "properties": {},
+      "properties": {"Node name for S&R": "CogVideoDecode"},
       "widgets_values": [true, 240, 360, 0.2, 0.2, true]
     },
     {
@@ -97,7 +90,7 @@
       "size": [340, 240],
       "inputs": [{"name": "images", "type": "IMAGE", "link": 10}],
       "outputs": [],
-      "properties": {},
+      "properties": {"Node name for S&R": "VHS_VideoCombine"},
       "widgets_values": {
         "frame_rate": 8,
         "loop_count": 0,
@@ -113,8 +106,8 @@
   ],
   "links": [
     [1,  1, 0, 7, 0, "COGVIDEOMODEL"],
-    [2,  2, 0, 8, 0, "VAE"],
-    [3,  2, 0, 8, 0, "VAE"],
+    [2,  1, 1, 8, 0, "VAE"],
+    [3,  1, 1, 8, 0, "VAE"],
     [4,  3, 0, 4, 0, "CLIP"],
     [5,  3, 0, 5, 0, "CLIP"],
     [6,  4, 0, 7, 1, "CONDITIONING"],
@@ -129,10 +122,10 @@
     "ds": {"scale": 0.5, "offset": [0, 0]},
     "info": {
       "name": "03 — CogVideoX-5B Text to Video",
-      "description": "Text prompt → 6-second 720×480 video at 8fps. Uses local cogvideox5b_bf16.safetensors. ~49 frames, ~50 steps.",
-      "model": "cogvideox5b_bf16.safetensors (diffusion_models/)",
-      "vae": "cogvideox5b_vae.safetensors",
-      "text_encoder": "t5xxl_fp8_e4m3fn.safetensors",
+      "description": "Text prompt → 6-second 720x480 video at 8fps. Uses DownloadAndLoadCogVideoModel (auto-loads THUDM/CogVideoX-5b sharded weights). ~49 frames, ~50 steps.",
+      "model": "THUDM/CogVideoX-5b (auto-loaded from HuggingFace cache)",
+      "vae": "included in DownloadAndLoadCogVideoModel",
+      "text_encoder": "t5xxl_fp8_e4m3fn.safetensors (fp8 single-file, CLIPLoader)",
       "vram_required": "~14 GB (with bf16)"
     }
   },
