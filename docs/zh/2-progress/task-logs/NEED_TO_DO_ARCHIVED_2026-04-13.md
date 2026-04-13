@@ -23,3 +23,5 @@
 ✅ **多模型切换端到端测试**（2026-04-11）：Qwen ↔ Gemma 完整切换流程验证（Router API + Webapp UI）— 已测试，Gemma 需等 AWQ 权重就绪后再做实机切换。
 
 ✅ **ComfyUI 工作流导入修复 + 内置工作流原生浏览**（2026-04-13）：根因：workflow JSON 引用单文件模型名（`cogvideox5b_bf16.safetensors`、`t5xxl_fp8_e4m3fn.safetensors`），但下载脚本从 HuggingFace 获取的是分片格式。修复：(1) CogVideoX 工作流改用 `DownloadAndLoadCogVideoModel`（支持分片目录加载）；(2) 新增 T5-XXL fp8 单文件下载（4.9GB，CLIPLoader 兼容）；(3) setup.sh 自动同步工作流到 ComfyUI Browse UI。打开 ComfyUI 即可在侧栏 Browse 中直接选择内置工作流。
+
+✅ **`prepare` 下载 UX 全面改进**（2026-04-13）：(1) SHA-256 校验 — 已下载文件通过 checksum 验证，不会重复下载，损坏文件自动重下；(2) 预览总览 — 启动时显示全部 6 个步骤及描述；(3) 动态进度 — `[N/6]` 步骤计数器 + CogVideoX 子步骤 `2a-2e`；(4) `realpath` 显示 — setup.sh 和 controller 都显示模型目录的真实路径；(5) 结尾摘要 — 显示下载/跳过/失败文件数。

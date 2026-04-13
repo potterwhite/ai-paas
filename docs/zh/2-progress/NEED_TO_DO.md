@@ -37,4 +37,8 @@
 
 ### paas-controller.sh 改进
 
-✅ **`prepare` 下载 UX 全面改进**（2026-04-13）：(1) SHA-256 校验 — 已下载文件通过 checksum 验证，不会重复下载，损坏文件自动重下；(2) 预览总览 — 启动时显示全部 6 个步骤及描述；(3) 动态进度 — `[N/6]` 步骤计数器 + CogVideoX 子步骤 `2a-2e`；(4) `realpath` 显示 — setup.sh 和 controller 都显示模型目录的真实路径；(5) 结尾摘要 — 显示下载/跳过/失败文件数。
+（2026-04-13 `prepare` 下载 UX 全面改进已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
+
+- [ ] comfyUI一直卡着DownloadAndLoadCogVideoModel一直是0%
+
+↑ 分析：`DownloadAndLoadCogVideoModel` 会从 HuggingFace 下载 ~21GB 到 `models/CogVideo/CogVideoX-5b/`（与 `diffusion_models/cogvideox5b/` 不是同一个路径）。首次运行需等待下载完成。后续考虑：setup.sh 中添加 symlink 避免重复存储。
