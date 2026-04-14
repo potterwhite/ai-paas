@@ -48,6 +48,21 @@ WHISPER_BASE_URL = os.getenv("WHISPER_BASE_URL",  "http://ai_whisper:8000/v1")
 LLM_MODEL        = os.getenv("LLM_MODEL",         "qwen")
 WHISPER_MODEL    = os.getenv("WHISPER_MODEL",      "Systran/faster-whisper-large-v3")
 
+# ── yt-dlp cookie support ────────────────────────────────────────────────────
+YTDLP_COOKIES_PATH = os.getenv("YTDLP_COOKIES_PATH", "")
+
+
+def _ytdlp_base_cmd() -> list[str]:
+    """Return yt-dlp base command with optional cookie authentication.
+
+    If YTDLP_COOKIES_PATH is set and the file exists, appends --cookies.
+    Otherwise returns plain ["yt-dlp"] for backward compatibility.
+    """
+    cmd = ["yt-dlp"]
+    if YTDLP_COOKIES_PATH and Path(YTDLP_COOKIES_PATH).is_file():
+        cmd.extend(["--cookies", YTDLP_COOKIES_PATH])
+    return cmd
+
 # ── Model manager config (low-coupling: change these two vars to reuse in other projects) ──
 MODELS_ROOT      = os.getenv("MODELS_ROOT", "/models")          # host path mapped into container
 VLLM_CONTAINER   = os.getenv("VLLM_CONTAINER", "ai_vllm_qwen")  # default container; switching delegates to Router
@@ -961,8 +976,8 @@ async def api_subtitle(
     if yt_url:
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                cmd = [
-                    "yt-dlp", "--write-auto-sub", "--write-sub",
+                cmd = _ytdlp_base_cmd() + [
+                    "--write-auto-sub", "--write-sub",
                     "--sub-lang", "en,zh,zh-Hans",
                     "--skip-download", "--output", f"{tmp}/sub",
                     yt_url
@@ -988,8 +1003,10 @@ async def api_subtitle(
                 if yt_url:
                     # Download audio from YouTube
                     out_path = f"{tmp}/audio.%(ext)s"
-                    cmd = ["yt-dlp", "-x", "--audio-format", "mp3",
-                           "--output", out_path, yt_url]
+                    cmd = _ytdlp_base_cmd() + [
+                        "-x", "--audio-format", "mp3",
+                        "--output", out_path, yt_url
+                    ]
                     subprocess.run(cmd, capture_output=True, timeout=300)
                     mp3_files = list(Path(tmp).glob("*.mp3"))
                     if mp3_files:

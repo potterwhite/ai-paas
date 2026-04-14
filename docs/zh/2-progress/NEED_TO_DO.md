@@ -15,7 +15,10 @@
 
 ### 待解决问题
 
-- **yt-dlp cookies 续期**：设计 server 端自动化从浏览器提取和更新 cookies 的机制，不依赖手动导出
+- **yt-dlp cookies 续期** ✅ 已实现：`ai_cookie_manager` sidecar 容器（Playwright + noVNC），自动每 6 小时刷新。待部署测试。
+  - 启动：`docker compose --profile cookies up -d`
+  - 首次登录：`http://localhost:6901`（noVNC → YouTube 登录）
+  - 健康检查：`curl http://localhost:6902/health`
 
 ### 多模型支持后续
 
@@ -39,6 +42,4 @@
 
 （2026-04-13 `prepare` 下载 UX 全面改进已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
 
-- [ ] comfyUI一直卡着DownloadAndLoadCogVideoModel一直是0%
-
-↑ 分析：`DownloadAndLoadCogVideoModel` 会从 HuggingFace 下载 ~21GB 到 `models/CogVideo/CogVideoX-5b/`（与 `diffusion_models/cogvideox5b/` 不是同一个路径）。首次运行需等待下载完成。后续考虑：setup.sh 中添加 symlink 避免重复存储。
+（2026-04-13 CogVideoX latent_rgb_factors_reshape 修复已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）

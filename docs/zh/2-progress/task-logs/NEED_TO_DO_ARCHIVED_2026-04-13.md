@@ -25,3 +25,5 @@
 ✅ **ComfyUI 工作流导入修复 + 内置工作流原生浏览**（2026-04-13）：根因：workflow JSON 引用单文件模型名（`cogvideox5b_bf16.safetensors`、`t5xxl_fp8_e4m3fn.safetensors`），但下载脚本从 HuggingFace 获取的是分片格式。修复：(1) CogVideoX 工作流改用 `DownloadAndLoadCogVideoModel`（支持分片目录加载）；(2) 新增 T5-XXL fp8 单文件下载（4.9GB，CLIPLoader 兼容）；(3) setup.sh 自动同步工作流到 ComfyUI Browse UI。打开 ComfyUI 即可在侧栏 Browse 中直接选择内置工作流。
 
 ✅ **`prepare` 下载 UX 全面改进**（2026-04-13）：(1) SHA-256 校验 — 已下载文件通过 checksum 验证，不会重复下载，损坏文件自动重下；(2) 预览总览 — 启动时显示全部 6 个步骤及描述；(3) 动态进度 — `[N/6]` 步骤计数器 + CogVideoX 子步骤 `2a-2e`；(4) `realpath` 显示 — setup.sh 和 controller 都显示模型目录的真实路径；(5) 结尾摘要 — 显示下载/跳过/失败文件数。
+
+✅ **ComfyUI CogVideoX latent_rgb_factors_reshape 修复**（2026-04-13）：`CogVideoXWrapper` 的 `CogVideoXLatentFormat` 未继承 ComfyUI 基类，缺少 `latent_rgb_factors_reshape` 属性，导致 `latent_preview.py:109` 抛出 `AttributeError`。根因：插件 `pipeline_cogvideox.py` 定义的类缺少该属性。修复：(1) setup.sh 添加幂等 compatibility patch，在容器启动时自动检测并注入 `latent_rgb_factors_reshape = None`；(2) 上游 commit `fdb8abd` 已包含该属性，patch 自动跳过。重启容器后错误不再出现。

@@ -32,6 +32,11 @@
 │   │   ├── main.py
 │   │   ├── requirements.txt
 │   │   └── static/style.css
+│   ├── cookie-manager/                 ←   ai_cookie_manager (Playwright + noVNC, profile: "cookies")
+│   │   ├── Dockerfile                  ←     Playwright + Chromium + noVNC + supervisord
+│   │   ├── main.py                     ←     Health API + cookie refresh logic
+│   │   ├── requirements.txt
+│   │   └── supervisord.conf            ←     Process manager (Xvfb, fluxbox, VNC, noVNC, Chromium, API)
 │   └── comfyui/                        ←   ComfyUI setup scripts and workflows (Phase 3)
 │       ├── install-nodes.sh            ←     Install custom nodes inside container
 │       ├── download-models.sh          ←     Download CogVideoX-5B model weights
@@ -41,7 +46,9 @@
 ├── data/                               ← [git-ignored] Container runtime data
 │   ├── router_redis/                   ←   Redis data (Phase 4 Celery)
 │   ├── router_db/                      ←   Router SQLite (Phase 4)
-│   └── comfyui_workdir/                ←   ComfyUI state + installed custom nodes
+│   ├── comfyui_workdir/                ←   ComfyUI state + installed custom nodes
+│   ├── cookies/                        ←   yt-dlp cookie file (managed by ai_cookie_manager)
+│   └── chrome-profile/                 ←   Chromium persistent login session (ai_cookie_manager)
 ├── models/comfyui/                     ← [git-ignored] ComfyUI model directory (Phase 3)
 │   ├── checkpoints/                    ←   Image diffusion checkpoints
 │   ├── vae/                            ←   VAE models (cogvideox5b_vae.safetensors — single file)
@@ -151,6 +158,7 @@ general_settings:
 | `ai_whisper` | `ghcr.io/speaches-ai/speaches:latest-cuda` | 9998→8000 | ✅ Running | STT (faster-whisper) |
 | `ai_webapp` | `ai-paas-webapp:latest` (built locally) | 8888→8080 | ✅ Running | Web UI (subtitle/translate/GPU panel) |
 | `ai_comfyui` | `yanwk/comfyui-boot:cu130-slim-v2` | 8188→8188 | ⏸ Stopped (manual start only) | Visual generation (video/digital human) |
+| `ai_cookie_manager` | `ai-paas-cookie-manager` (built locally) | 127.0.0.1:6901,6902 | ⏸ Profile-gated (`cookies`) | yt-dlp cookie auto-renewal (Playwright + noVNC) |
 | `harbor-*` | harbor | 8080 | ✅ Running | Docker registry |
 
 > **Note:** Portainer and Harbor are system-level containers not managed by `docker-compose.yml`.
@@ -181,6 +189,13 @@ GET  /api/models/list                          → list models in MODELS_ROOT di
 POST /api/models/download  {repo_id, local_name?} → start background HF download → {task_id}
 GET  /api/models/progress/{task_id}            → poll download log + status
 POST /api/models/switch    {model_name}        → returns compose change instructions
+```
+
+### Cookie Manager Endpoints (ai_cookie_manager, localhost only)
+```
+http://localhost:6901                  → noVNC (Chromium browser for YouTube login)
+GET  http://localhost:6902/health      → {status, cookie_age_hours, last_refresh, refresh_count}
+POST http://localhost:6902/refresh     → trigger immediate cookie refresh
 ```
 
 > VRAM data: webapp reads via `docker exec ai_vllm nvidia-smi` (no GPU passthrough needed).

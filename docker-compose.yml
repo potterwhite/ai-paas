@@ -254,15 +254,46 @@ services:
       - COMFYUI_MODELS_HDD=${COMFYUI_MODELS_HDD:-}  # host path for large ComfyUI models
       - VLLM_CONTAINER=ai_vllm_qwen            # default container name; webapp delegates to Router for switching
       - HF_TOKEN=${HF_TOKEN:-}               # optional: HuggingFace token for gated models
+      - YTDLP_COOKIES_PATH=/cookies/cookies.txt  # optional: yt-dlp cookie file for YouTube auth
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # GPU panel: docker API + nvidia-smi via exec into vllm containers
       - ${MODELS_PATH:-./models}:/models                       # model manager: read/write model weights
       - ./data/comfyui_workflows:/comfyui_workflows:ro         # built-in workflow JSONs for browser UI
+      - ./data/cookies:/cookies:ro                             # yt-dlp cookies (managed by ai_cookie_manager)
     networks:
       - default
     depends_on:
       - router
       - whisper
+
+  # ============================================================
+  # Cookie Manager — automatic yt-dlp cookie renewal
+  # Profile-gated: docker compose --profile cookies up -d
+  # One-time: open noVNC at http://localhost:6901 and log into YouTube
+  # After login, cookies auto-refresh every 6 hours
+  # ============================================================
+  cookie-manager:
+    build: ./services/cookie-manager
+    container_name: ai_cookie_manager
+    profiles: ["cookies"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6901:6901"   # noVNC web UI (localhost only for security)
+      - "127.0.0.1:6902:6902"   # health API
+    volumes:
+      - ./data/cookies:/cookies                    # shared with ai_webapp (read-only there)
+      - ./data/chrome-profile:/data/chrome-profile # persistent Chromium login session
+    environment:
+      - REFRESH_INTERVAL_HOURS=6
+      - COOKIE_OUTPUT=/cookies/cookies.txt
+      - DISPLAY=:99
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6902/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
 
 networks:
   default:
