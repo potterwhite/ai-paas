@@ -278,8 +278,8 @@ services:
     profiles: ["cookies"]
     restart: unless-stopped
     ports:
-      - "127.0.0.1:6901:6901"   # noVNC web UI (localhost only for security)
-      - "127.0.0.1:6902:6902"   # health API
+      - "6901:6901"   # noVNC web UI
+      - "127.0.0.1:6902:6902"   # health API (internal only)
     volumes:
       - ./data/cookies:/cookies                    # shared with ai_webapp (read-only there)
       - ./data/chrome-profile:/data/chrome-profile # persistent Chromium login session
