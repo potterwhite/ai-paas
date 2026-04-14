@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/potterwhite/ai-paas/compare/v2.1.1...v2.2.0) (2026-04-14)
+
+
+### ✨ Added
+
+* add yt-dlp cookie auto-renewal + fix CogVideoX latent format ([#10](https://github.com/potterwhite/ai-paas/issues/10)) ([6d0940a](https://github.com/potterwhite/ai-paas/commit/6d0940aff5190fc4284187a0d580ce28d6e322e8))
+
 ## [2.1.1](https://github.com/potterwhite/ai-paas/compare/v2.1.0...v2.1.1) (2026-04-13)
 
 
