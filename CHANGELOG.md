@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/potterwhite/ai-paas/compare/v2.2.0...v2.2.1) (2026-04-14)
+
+
+### 🐛 Fixed
+
+* resolve cookie-manager build and runtime failures ([#12](https://github.com/potterwhite/ai-paas/issues/12)) ([27e12e1](https://github.com/potterwhite/ai-paas/commit/27e12e184def5a5895637b3c213b5e8fb3ed96f8))
+
 ## [2.2.0](https://github.com/potterwhite/ai-paas/compare/v2.1.1...v2.2.0) (2026-04-14)
 
 
