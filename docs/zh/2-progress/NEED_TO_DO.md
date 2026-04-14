@@ -15,7 +15,10 @@
 
 ### 待解决问题
 
-- **yt-dlp cookies 续期**：设计 server 端自动化从浏览器提取和更新 cookies 的机制，不依赖手动导出
+- **yt-dlp cookies 续期** ✅ 已实现：`ai_cookie_manager` sidecar 容器（Playwright + noVNC），自动每 6 小时刷新。待部署测试。
+  - 启动：`docker compose --profile cookies up -d`
+  - 首次登录：`http://localhost:6901`（noVNC → YouTube 登录）
+  - 健康检查：`curl http://localhost:6902/health`
 
 ### 多模型支持后续
 
