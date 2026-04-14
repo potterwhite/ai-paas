@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     x11vnc \
     fluxbox \
+    dbus-x11 \
+    x11-utils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -30,4 +32,5 @@ COPY . .
 # noVNC on 6901, health API on 6902
 EXPOSE 6901 6902
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# Entrypoint upgrades yt-dlp on every start, then launches supervisor
+ENTRYPOINT ["/app/entrypoint.sh"]
