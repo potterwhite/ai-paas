@@ -393,7 +393,9 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
   <div class="sw-progress-wrap"><div class="sw-progress-fill" id="sw-progress-bar"></div></div>
 </div>
 
-<main>{body}</main>
+<main>
+<div id="cookie-alert" style="display:none;"></div>
+{body}</main>
 <script>
 // ── Global switching overlay ────────────────────────────────────────────────
 var _swState = null; // null = idle; object = switching in progress
@@ -573,6 +575,26 @@ function showDependencyAlert(deps) {{
 // Initial load
 // Initial load
 fetch('/status').then(r => r.json()).then(updateGpuWidget).catch(() => {{}});
+// ── Global cookie alert ───────────────────────────────────────────────────
+function _checkCookieAlert() {{
+  fetch('/api/cookie-status').then(r => r.json()).then(d => {{
+    const el = document.getElementById('cookie-alert');
+    if (!el || !d.enabled) {{ if (el) el.style.display='none'; return; }}
+    if (!d.file_exists || (d.cookie_age_hours !== null && d.cookie_age_hours > 24)) {{
+      const msg = d.file_exists ? 'YouTube cookies 可能已过期（' + d.cookie_age_hours + ' 小时前刷新）' : 'YouTube cookies 文件不存在';
+      const vnc = 'http://' + location.hostname + ':6901/vnc.html';
+      el.innerHTML = '<div class="card" style="margin-bottom:16px;border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px 16px">'
+        + '<span style="color:#f59e0b;font-weight:600">⚠️ ' + msg + '</span>'
+        + ' &nbsp;<a href="' + vnc + '" target="_blank" style="color:var(--accent)">打开 noVNC 登录 YouTube →</a>'
+        + '</div>';
+      el.style.display = 'block';
+    }} else {{
+      el.style.display = 'none';
+    }}
+  }}).catch(() => {{}});
+}}
+_checkCookieAlert();
+setInterval(_checkCookieAlert, 60000);
 </script>
 </body>
 </html>""")
@@ -825,6 +847,50 @@ async def gpu_status_lite():
     return JSONResponse(result)
 
 
+@app.get("/api/cookie-status")
+async def cookie_status():
+    """Return cookie file status + cookie-manager health (if reachable)."""
+    cookie_path = Path(YTDLP_COOKIES_PATH) if YTDLP_COOKIES_PATH else None
+    result = {
+        "enabled": bool(YTDLP_COOKIES_PATH),
+        "file_exists": cookie_path.is_file() if cookie_path else False,
+        "cookie_age_hours": None,
+        "manager": None,
+    }
+    if result["file_exists"]:
+        mtime = cookie_path.stat().st_mtime
+        result["cookie_age_hours"] = round((time.time() - mtime) / 3600, 1)
+
+    # Try to reach cookie-manager health API (may not be running)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "http://ai_cookie_manager:6902/health", timeout=2.0
+            )
+            if resp.status_code == 200:
+                result["manager"] = resp.json()
+    except Exception:
+        pass  # cookie-manager not running — that's fine
+
+    return JSONResponse(result)
+
+
+@app.post("/api/cookie-refresh")
+async def cookie_refresh_proxy():
+    """Proxy to cookie-manager POST /refresh endpoint."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "http://ai_cookie_manager:6902/refresh", timeout=60.0
+            )
+            return JSONResponse(resp.json())
+    except Exception as e:
+        return JSONResponse(
+            {"success": False, "message": f"Cookie Manager 未运行或不可达: {e}"},
+            status_code=502,
+        )
+
+
 # ── /  (Home) ────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -887,6 +953,7 @@ async def subtitle_page():
   <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
     优先使用 YouTube 字幕（无需 GPU）；无字幕时自动用 Whisper 转录。
   </p>
+  <div id="sub-cookie-hint" style="font-size:12px;margin-bottom:14px;display:none"></div>
 
   <div class="form-group">
     <label>YouTube 链接（可选，优先使用）</label>
@@ -959,6 +1026,22 @@ async function runSubtitle() {
     btn.innerHTML = '▶ 生成字幕';
   }
 }
+// Cookie status hint for subtitle page
+fetch('/api/cookie-status').then(r => r.json()).then(d => {
+  const el = document.getElementById('sub-cookie-hint');
+  if (!el || !d.enabled) return;
+  el.style.display = 'block';
+  if (d.file_exists && d.cookie_age_hours <= 24) {
+    el.style.color = '#22c55e';
+    el.innerHTML = '🍪 YouTube 已登录（cookies ' + d.cookie_age_hours + ' 小时前刷新），可访问受限视频';
+  } else if (d.file_exists) {
+    el.style.color = '#f59e0b';
+    el.innerHTML = '⚠️ YouTube cookies 可能已过期（' + d.cookie_age_hours + 'h 前刷新）。<a href="http://' + location.hostname + ':6901/vnc.html" target="_blank" style="color:var(--accent)">重新登录</a>';
+  } else {
+    el.style.color = 'var(--text-dim)';
+    el.innerHTML = '🍪 未检测到 YouTube cookies。<a href="http://' + location.hostname + ':6901/vnc.html" target="_blank" style="color:var(--accent)">登录 YouTube</a> 可解锁受限视频';
+  }
+}).catch(() => {});
 </script>
 """
     return page("字幕生成", "/subtitle", body)
@@ -1543,6 +1626,11 @@ async def gpu_page():
   <div id="container-list"><div style="color:var(--text-dim);font-size:13px">加载中…</div></div>
 </div>
 
+<div class="card" id="cookie-card" style="display:none;">
+  <h2>YouTube Cookie 状态</h2>
+  <div id="cookie-content"><div style="color:var(--text-dim);font-size:13px">加载中…</div></div>
+</div>
+
 <style>
 .toggle-wrap { position:relative; display:inline-block; width:36px; height:20px; }
 .toggle-wrap input { opacity:0; width:0; height:0; position:absolute; }
@@ -1805,6 +1893,65 @@ async function ctrlContainer(action, name) {
 
 loadContainers();
 setInterval(loadContainers, 10000);
+
+// ── Cookie status card ──────────────────────────────────────────────────────
+function loadCookieStatus() {
+  fetch('/api/cookie-status').then(r => r.json()).then(d => {
+    const card = document.getElementById('cookie-card');
+    const ct = document.getElementById('cookie-content');
+    if (!card || !ct) return;
+    if (!d.enabled) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+
+    let html = '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">';
+
+    // Cookie file status
+    if (!d.file_exists) {
+      html += '<span class="badge badge-red" style="font-size:14px">❌ Cookie 文件不存在</span>';
+    } else if (d.cookie_age_hours <= 12) {
+      html += '<span class="badge badge-green" style="font-size:14px">✅ 正常</span>';
+      html += '<span style="color:var(--text-dim);font-size:13px">' + d.cookie_age_hours + ' 小时前刷新</span>';
+    } else if (d.cookie_age_hours <= 24) {
+      html += '<span class="badge" style="font-size:14px;background:rgba(245,158,11,0.15);color:#f59e0b">⚠️ 即将过期</span>';
+      html += '<span style="color:var(--text-dim);font-size:13px">' + d.cookie_age_hours + ' 小时前刷新</span>';
+    } else {
+      html += '<span class="badge badge-red" style="font-size:14px">❌ 可能已过期</span>';
+      html += '<span style="color:var(--text-dim);font-size:13px">' + d.cookie_age_hours + ' 小时前刷新</span>';
+    }
+
+    // Cookie Manager status
+    if (d.manager) {
+      html += '<span style="color:var(--text-dim);font-size:13px">· Manager: ✅ 运行中';
+      if (d.manager.refresh_count > 0) html += ' · 已刷新 ' + d.manager.refresh_count + ' 次';
+      html += '</span>';
+    } else {
+      html += '<span style="color:#f59e0b;font-size:13px">· Manager: ⏸ 未运行</span>';
+    }
+
+    html += '</div>';
+
+    // Action links
+    const vnc = 'http://' + location.hostname + ':6901/vnc.html';
+    html += '<div style="margin-top:10px;font-size:13px">';
+    html += '<a href="' + vnc + '" target="_blank" style="color:var(--accent);margin-right:16px">🖥 打开 noVNC 登录 YouTube</a>';
+    html += '<a href="#" onclick="refreshCookies();return false;" style="color:var(--accent)">🔄 手动刷新 Cookies</a>';
+    html += '</div>';
+
+    ct.innerHTML = html;
+  }).catch(() => {});
+}
+
+async function refreshCookies() {
+  try {
+    var r = await fetch('/api/cookie-refresh', {method:'POST'});
+    var d = await r.json();
+    alert(d.success ? '✅ ' + d.message : '❌ ' + d.message);
+    loadCookieStatus();
+  } catch(e) { alert('请求失败: ' + e.message); }
+}
+
+loadCookieStatus();
+setInterval(loadCookieStatus, 30000);
 </script>
 """
     return page("GPU 控制", "/gpu", body)
