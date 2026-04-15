@@ -66,6 +66,9 @@ def _ytdlp_base_cmd() -> list[str]:
 # ── Branding ────────────────────────────────────────────────────────────────
 APP_NAME         = os.getenv("APP_NAME", "ai-paas")                # displayed in header + title
 
+# ── Media storage (NFS / local) ─────────────────────────────────────────────
+MEDIA_ROOT       = os.getenv("MEDIA_ROOT", "")                     # /media inside container (mapped from host)
+
 # ── Model manager config (low-coupling: change these two vars to reuse in other projects) ──
 MODELS_ROOT      = os.getenv("MODELS_ROOT", "/models")          # host path mapped into container
 VLLM_CONTAINER   = os.getenv("VLLM_CONTAINER", "ai_vllm_qwen")  # default container; switching delegates to Router
@@ -249,6 +252,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
     nav_links = [
         ("/",          "🏠", "首页"),
         ("/subtitle",  "🎬", "字幕"),
+        ("/download",  "📥", "下载"),
         ("/translate", "🌐", "翻译"),
         ("/comfyui",   "🎨", "生成"),
         ("/gpu",       "⚡", "GPU"),
@@ -903,6 +907,31 @@ async def cookie_refresh_proxy():
         )
 
 
+@app.get("/api/media-dirs")
+async def media_dirs():
+    """Scan MEDIA_ROOT for up-to-2-level subdirectories."""
+    if not MEDIA_ROOT or not Path(MEDIA_ROOT).is_dir():
+        return JSONResponse({"configured": False, "dirs": []})
+
+    root = Path(MEDIA_ROOT)
+    dirs = []
+    try:
+        for p in sorted(root.iterdir()):
+            if not p.is_dir() or p.name.startswith("."):
+                continue
+            rel = p.name
+            dirs.append({"path": rel, "writable": os.access(p, os.W_OK)})
+            # Second level
+            for sub in sorted(p.iterdir()):
+                if sub.is_dir() and not sub.name.startswith("."):
+                    dirs.append({"path": f"{rel}/{sub.name}", "writable": os.access(sub, os.W_OK)})
+    except PermissionError:
+        pass
+
+    writable = os.access(MEDIA_ROOT, os.W_OK)
+    return JSONResponse({"configured": True, "writable": writable, "dirs": dirs})
+
+
 # ── /  (Home) ────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -1177,6 +1206,351 @@ async def api_subtitle(
         result = transcript
 
     return JSONResponse({"result": result})
+
+
+# ── /download ────────────────────────────────────────────────────────────────
+@app.get("/download", response_class=HTMLResponse)
+async def download_page():
+    body = """
+<div class="card">
+  <h2>YouTube 下载</h2>
+  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+    下载 YouTube 视频和字幕到本地 NFS 存储。
+  </p>
+  <div id="dl-media-alert" style="display:none"></div>
+  <div id="sub-cookie-hint" style="font-size:12px;margin-bottom:14px;display:none"></div>
+
+  <div class="form-group">
+    <label>YouTube 链接</label>
+    <input type="url" id="dl-url" placeholder="https://www.youtube.com/watch?v=...">
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="form-group">
+      <label>分辨率</label>
+      <select id="dl-resolution">
+        <option value="best">最佳</option>
+        <option value="1080" selected>1080p</option>
+        <option value="720">720p</option>
+        <option value="480">480p</option>
+        <option value="audio">仅音频 (MP3)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>保存到</label>
+      <select id="dl-dir"><option value="">加载中...</option></select>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:20px;margin-bottom:16px">
+    <label style="font-size:13px;cursor:pointer">
+      <input type="checkbox" id="dl-video" checked> 下载视频
+    </label>
+    <label style="font-size:13px;cursor:pointer">
+      <input type="checkbox" id="dl-subs" checked> 下载字幕
+    </label>
+    <label style="font-size:13px;cursor:pointer;color:var(--text-dim)" title="视频无字幕时用 Whisper AI 转录">
+      <input type="checkbox" id="dl-transcribe"> AI 转录（无字幕时）
+    </label>
+  </div>
+
+  <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">
+    📥 开始下载
+  </button>
+
+  <div id="dl-progress" style="display:none;margin-top:16px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <span class="ck-spin" style="font-size:18px">⟳</span>
+      <span id="dl-status" style="font-size:13px">准备中...</span>
+    </div>
+    <pre id="dl-log" style="max-height:300px;overflow-y:auto;font-size:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;white-space:pre-wrap"></pre>
+  </div>
+
+  <div id="dl-result" style="display:none;margin-top:16px"></div>
+</div>
+<style>
+.ck-spin { display:inline-block; animation: ck-rotate 1s linear infinite; }
+@keyframes ck-rotate { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+</style>
+<script>
+// Load media directories
+fetch('/api/media-dirs').then(r => r.json()).then(d => {
+  const sel = document.getElementById('dl-dir');
+  const alert = document.getElementById('dl-media-alert');
+  if (!d.configured) {
+    alert.style.display = 'block';
+    alert.innerHTML = '<div class="card" style="border:1px solid #dc2626;background:rgba(220,38,38,0.08);padding:12px">❌ 未配置 MEDIA_ROOT。请在 <code>.env</code> 中设置 <code>MEDIA_ROOT=/mnt/truenas/media</code> 并重建容器。</div>';
+    document.getElementById('dl-btn').disabled = true;
+    return;
+  }
+  if (!d.writable) {
+    alert.style.display = 'block';
+    alert.innerHTML = '<div class="card" style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px">⚠️ 媒体目录不可写。请检查 NFS 挂载权限。</div>';
+  }
+  sel.innerHTML = '';
+  d.dirs.forEach(item => {
+    const opt = document.createElement('option');
+    opt.value = item.path;
+    opt.textContent = item.writable ? item.path : item.path + ' 🔒';
+    if (!item.writable) opt.style.color = '#999';
+    sel.appendChild(opt);
+  });
+  // Add root option
+  const rootOpt = document.createElement('option');
+  rootOpt.value = '.';
+  rootOpt.textContent = '/ (根目录)';
+  sel.insertBefore(rootOpt, sel.firstChild);
+}).catch(() => {});
+
+// Cookie hint
+fetch('/api/cookie-status').then(r => r.json()).then(d => {
+  const el = document.getElementById('sub-cookie-hint');
+  if (!el || !d.enabled) return;
+  el.style.display = 'block';
+  if (d.file_exists && d.cookie_age_hours <= 24) {
+    el.style.color = '#22c55e';
+    el.innerHTML = '🍪 YouTube 已登录，可下载受限视频';
+  } else {
+    el.style.color = 'var(--text-dim)';
+    el.innerHTML = '🍪 未登录 YouTube。<a href="http://' + location.hostname + ':6901/vnc.html" target="_blank" style="color:var(--accent)">登录</a> 可解锁受限内容';
+  }
+}).catch(() => {});
+
+async function startDownload() {
+  const url = document.getElementById('dl-url').value.trim();
+  if (!url) { alert('请输入 YouTube 链接'); return; }
+
+  const btn = document.getElementById('dl-btn');
+  const prog = document.getElementById('dl-progress');
+  const log = document.getElementById('dl-log');
+  const status = document.getElementById('dl-status');
+  const result = document.getElementById('dl-result');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 下载中...';
+  prog.style.display = 'block';
+  result.style.display = 'none';
+  log.textContent = '';
+  status.textContent = '正在启动下载...';
+
+  try {
+    const body = {
+      url: url,
+      resolution: document.getElementById('dl-resolution').value,
+      save_dir: document.getElementById('dl-dir').value,
+      download_video: document.getElementById('dl-video').checked,
+      download_subs: document.getElementById('dl-subs').checked,
+      ai_transcribe: document.getElementById('dl-transcribe').checked,
+    };
+
+    const resp = await fetch('/api/download', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const ev = JSON.parse(line.slice(6));
+          if (ev.type === 'progress') {
+            status.textContent = ev.message;
+            log.textContent += ev.message + '\\n';
+            log.scrollTop = log.scrollHeight;
+          } else if (ev.type === 'done') {
+            prog.style.display = 'none';
+            let rhtml = '<div class="card" style="border:1px solid #22c55e;background:rgba(34,197,94,0.08);padding:12px">';
+            rhtml += '<strong>✅ 下载完成</strong><br>';
+            if (ev.files && ev.files.length > 0) {
+              rhtml += '<ul style="margin:8px 0 0;padding-left:20px;font-size:13px">';
+              ev.files.forEach(f => rhtml += '<li>' + f + '</li>');
+              rhtml += '</ul>';
+            }
+            rhtml += '<div style="font-size:12px;color:var(--text-dim);margin-top:6px">保存到: ' + ev.save_dir + '</div>';
+            rhtml += '</div>';
+            result.innerHTML = rhtml;
+            result.style.display = 'block';
+          } else if (ev.type === 'error') {
+            prog.style.display = 'none';
+            result.innerHTML = '<div class="card" style="border:1px solid #dc2626;background:rgba(220,38,38,0.08);padding:12px">❌ ' + ev.message + '</div>';
+            result.style.display = 'block';
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) {
+    prog.style.display = 'none';
+    result.innerHTML = '<div class="card" style="border:1px solid #dc2626;background:rgba(220,38,38,0.08);padding:12px">❌ 请求失败: ' + e.message + '</div>';
+    result.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📥 开始下载';
+  }
+}
+</script>
+"""
+    return page("下载", "/download", body)
+
+
+@app.post("/api/download")
+async def api_download(request: Request):
+    """Download YouTube video/subtitles via yt-dlp, stream progress via SSE."""
+    data = await request.json()
+    url = data.get("url", "").strip()
+    resolution = data.get("resolution", "1080")
+    save_dir = data.get("save_dir", ".")
+    download_video = data.get("download_video", True)
+    download_subs = data.get("download_subs", True)
+    ai_transcribe = data.get("ai_transcribe", False)
+
+    if not url:
+        return JSONResponse({"error": "URL is required"}, status_code=400)
+
+    # Validate save path
+    if not MEDIA_ROOT or not Path(MEDIA_ROOT).is_dir():
+        return JSONResponse({"error": "MEDIA_ROOT not configured"}, status_code=500)
+
+    target_dir = Path(MEDIA_ROOT) / save_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # Security: ensure target is under MEDIA_ROOT
+    try:
+        target_dir.resolve().relative_to(Path(MEDIA_ROOT).resolve())
+    except ValueError:
+        return JSONResponse({"error": "Invalid save directory"}, status_code=400)
+
+    # Check write permission
+    if not os.access(target_dir, os.W_OK):
+        return JSONResponse(
+            {"error": f"目录 '{save_dir}' 无写入权限，请在 NAS 上检查目录权限 (chmod o+w)"},
+            status_code=403,
+        )
+
+    async def event_stream():
+        import re
+
+        def sse(event_type: str, **kwargs):
+            payload = json.dumps({"type": event_type, **kwargs})
+            return f"data: {payload}\n\n"
+
+        yield sse("progress", message=f"目标目录: {save_dir}")
+
+        base_cmd = _ytdlp_base_cmd()
+        files_created = []
+
+        try:
+            # ── Step 1: Download video ───────────────────────────────────
+            if download_video:
+                yield sse("progress", message="正在下载视频...")
+
+                fmt_map = {
+                    "best": "bestvideo+bestaudio/best",
+                    "1080": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+                    "720": "bestvideo[height<=720]+bestaudio/best[height<=720]",
+                    "480": "bestvideo[height<=480]+bestaudio/best[height<=480]",
+                    "audio": "bestaudio/best",
+                }
+                fmt = fmt_map.get(resolution, fmt_map["1080"])
+
+                cmd = base_cmd + [
+                    "-f", fmt,
+                    "--merge-output-format", "mp4" if resolution != "audio" else "mp3",
+                    "-o", str(target_dir / "%(title)s.%(ext)s"),
+                    "--no-playlist",
+                    "--newline",  # one progress line per update
+                ]
+                if download_subs:
+                    cmd += ["--write-auto-sub", "--write-sub", "--sub-lang", "en,zh,zh-Hans"]
+                cmd.append(url)
+
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                last_error = ""
+                async for line in proc.stdout:
+                    text = line.decode("utf-8", errors="replace").strip()
+                    if text:
+                        # Capture error lines for better reporting
+                        if text.startswith("ERROR:"):
+                            last_error = text
+                        # Extract percentage from yt-dlp output
+                        pct_match = re.search(r'\[download\]\s+(\d+\.?\d*)%', text)
+                        if pct_match:
+                            yield sse("progress", message=f"下载中: {pct_match.group(1)}%")
+                        elif "[download] Destination:" in text:
+                            fname = text.split("Destination:")[-1].strip()
+                            yield sse("progress", message=f"文件: {Path(fname).name}")
+                        elif "[Merger]" in text or "Merging" in text:
+                            yield sse("progress", message="合并音视频...")
+                        elif text.startswith("[download] 100%"):
+                            yield sse("progress", message="下载完成，处理中...")
+
+                await proc.wait()
+                if proc.returncode != 0:
+                    # Check if files were actually created despite non-zero exit
+                    # (yt-dlp sometimes exits non-zero even when download succeeded)
+                    created = [f for f in target_dir.iterdir()
+                               if f.is_file() and not f.name.startswith(".")]
+                    if not created:
+                        err_msg = last_error or "视频下载失败，请检查链接是否正确"
+                        yield sse("error", message=err_msg)
+                        return
+                    # Files exist — treat as partial success, continue
+
+            # ── Step 2: Download subtitles only ──────────────────────────
+            elif download_subs:
+                yield sse("progress", message="正在下载字幕...")
+                cmd = base_cmd + [
+                    "--write-auto-sub", "--write-sub",
+                    "--sub-lang", "en,zh,zh-Hans",
+                    "--skip-download",
+                    "-o", str(target_dir / "%(title)s.%(ext)s"),
+                    "--no-playlist",
+                    url,
+                ]
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                async for line in proc.stdout:
+                    text = line.decode("utf-8", errors="replace").strip()
+                    if text:
+                        yield sse("progress", message=text[:120])
+                await proc.wait()
+
+            # ── Step 3: AI transcribe (if requested) ─────────────────────
+            if ai_transcribe:
+                yield sse("progress", message="AI 转录功能暂未实现（需要 Whisper 集成）")
+
+            # List files in target directory (new files)
+            for f in sorted(target_dir.iterdir()):
+                if f.is_file() and not f.name.startswith("."):
+                    size_mb = f.stat().st_size / (1024 * 1024)
+                    files_created.append(f"{f.name} ({size_mb:.1f} MB)")
+
+            yield sse("done", files=files_created, save_dir=str(save_dir))
+
+        except Exception as e:
+            yield sse("error", message=str(e))
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── /translate ───────────────────────────────────────────────────────────────
