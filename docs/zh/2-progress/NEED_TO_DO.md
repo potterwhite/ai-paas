@@ -43,3 +43,33 @@
 （2026-04-13 `prepare` 下载 UX 全面改进已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
 
 （2026-04-13 CogVideoX latent_rgb_factors_reshape 修复已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
+
+- [ ] 下载过程中就一直转圈，也没告诉我是进度如何，我也不知道到底是不是卡住了
+```bash
+
+ai-paas
+🏠 首页
+🎬 字幕
+📥 下载
+🌐 翻译
+🎨 生成
+⚡ GPU
+📦 模型
+📋 队列
+📝 日志
+YouTube 下载
+
+下载 YouTube 视频和字幕到本地 NFS 存储。
+🍪 YouTube 已登录，可下载受限视频
+YouTube 链接
+分辨率
+保存到
+下载视频
+下载字幕
+AI 转录（无字幕时）
+⟳ 正在启动下载...
+
+
+```
+
+- [ ] 还有既然都写了下载字幕，那你就应该让"ai转录"变成“下载字幕”的一种子功能，只有parent node被enable才打开sub node。

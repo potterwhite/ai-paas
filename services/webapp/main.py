@@ -1242,15 +1242,15 @@ async def download_page():
     </div>
   </div>
 
-  <div style="display:flex;gap:20px;margin-bottom:16px">
-    <label style="font-size:13px;cursor:pointer">
+  <div style="margin-bottom:16px">
+    <label style="font-size:13px;cursor:pointer;display:block;margin-bottom:10px">
       <input type="checkbox" id="dl-video" checked> 下载视频
     </label>
-    <label style="font-size:13px;cursor:pointer">
-      <input type="checkbox" id="dl-subs" checked> 下载字幕
+    <label style="font-size:13px;cursor:pointer;display:block;margin-bottom:6px">
+      <input type="checkbox" id="dl-subs" checked onchange="toggleTranscribe()"> 下载字幕
     </label>
-    <label style="font-size:13px;cursor:pointer;color:var(--text-dim)" title="视频无字幕时用 Whisper AI 转录">
-      <input type="checkbox" id="dl-transcribe"> AI 转录（无字幕时）
+    <label id="dl-transcribe-label" style="font-size:13px;cursor:pointer;display:block;padding-left:22px;color:var(--text-dim)" title="无字幕时用 Whisper AI 自动转录">
+      <input type="checkbox" id="dl-transcribe"> AI 转录（无字幕时，需 Whisper）
     </label>
   </div>
 
@@ -1261,9 +1261,13 @@ async def download_page():
   <div id="dl-progress" style="display:none;margin-top:16px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <span class="ck-spin" style="font-size:18px">⟳</span>
-      <span id="dl-status" style="font-size:13px">准备中...</span>
+      <span id="dl-status" style="font-size:14px;font-weight:600">准备中...</span>
+      <span id="dl-pct" style="font-size:13px;color:var(--text-dim)"></span>
     </div>
-    <pre id="dl-log" style="max-height:300px;overflow-y:auto;font-size:12px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;white-space:pre-wrap"></pre>
+    <div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:8px;overflow:hidden">
+      <div id="dl-bar" style="height:100%;width:0%;background:var(--accent);transition:width 0.3s;border-radius:2px"></div>
+    </div>
+    <pre id="dl-log" style="max-height:200px;overflow-y:auto;font-size:11px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;white-space:pre-wrap;color:var(--text-dim)"></pre>
   </div>
 
   <div id="dl-result" style="display:none;margin-top:16px"></div>
@@ -1316,6 +1320,18 @@ fetch('/api/cookie-status').then(r => r.json()).then(d => {
   }
 }).catch(() => {});
 
+// Transcribe toggle — only enabled when dl-subs is checked
+function toggleTranscribe() {
+  const subsOn = document.getElementById('dl-subs').checked;
+  const lbl = document.getElementById('dl-transcribe-label');
+  const cb = document.getElementById('dl-transcribe');
+  lbl.style.opacity = subsOn ? '1' : '0.4';
+  lbl.style.pointerEvents = subsOn ? 'auto' : 'none';
+  if (!subsOn) cb.checked = false;
+}
+// Init on load
+toggleTranscribe();
+
 async function startDownload() {
   const url = document.getElementById('dl-url').value.trim();
   if (!url) { alert('请输入 YouTube 链接'); return; }
@@ -1324,6 +1340,8 @@ async function startDownload() {
   const prog = document.getElementById('dl-progress');
   const log = document.getElementById('dl-log');
   const status = document.getElementById('dl-status');
+  const pct = document.getElementById('dl-pct');
+  const bar = document.getElementById('dl-bar');
   const result = document.getElementById('dl-result');
 
   btn.disabled = true;
@@ -1332,6 +1350,8 @@ async function startDownload() {
   result.style.display = 'none';
   log.textContent = '';
   status.textContent = '正在启动下载...';
+  pct.textContent = '';
+  bar.style.width = '0%';
 
   try {
     const body = {
@@ -1364,10 +1384,23 @@ async function startDownload() {
         try {
           const ev = JSON.parse(line.slice(6));
           if (ev.type === 'progress') {
-            status.textContent = ev.message;
+            // Extract percentage if message is like "下载中: 58.1%"
+            const pctMatch = ev.message.match(/(\\d+\\.?\\d*)%/);
+            if (pctMatch) {
+              const p = parseFloat(pctMatch[1]);
+              bar.style.width = p + '%';
+              pct.textContent = p.toFixed(1) + '%';
+              status.textContent = '正在下载...';
+            } else {
+              status.textContent = ev.message;
+              pct.textContent = '';
+            }
             log.textContent += ev.message + '\\n';
             log.scrollTop = log.scrollHeight;
           } else if (ev.type === 'done') {
+            bar.style.width = '100%';
+            pct.textContent = '100%';
+            status.textContent = '✅ 下载完成';
             prog.style.display = 'none';
             let rhtml = '<div class="card" style="border:1px solid #22c55e;background:rgba(34,197,94,0.08);padding:12px">';
             rhtml += '<strong>✅ 下载完成</strong><br>';
