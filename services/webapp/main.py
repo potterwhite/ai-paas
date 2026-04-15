@@ -1482,6 +1482,13 @@ async def api_download(request: Request):
         files_created = []
 
         try:
+            # Snapshot existing files before download to detect truly new files
+            existing_files: set[str] = set()
+            try:
+                existing_files = {f.name for f in target_dir.iterdir() if f.is_file()}
+            except Exception:
+                pass
+
             # ── Step 1: Download video ───────────────────────────────────
             if download_video:
                 yield sse("progress", message="正在下载视频...")
@@ -1568,11 +1575,15 @@ async def api_download(request: Request):
             if ai_transcribe:
                 yield sse("progress", message="AI 转录功能暂未实现（需要 Whisper 集成）")
 
-            # List files in target directory (new files)
+            # List only files newly created by this download (not pre-existing ones)
             for f in sorted(target_dir.iterdir()):
-                if f.is_file() and not f.name.startswith("."):
+                if f.is_file() and not f.name.startswith(".") and f.name not in existing_files:
                     size_mb = f.stat().st_size / (1024 * 1024)
                     files_created.append(f"{f.name} ({size_mb:.1f} MB)")
+
+            if not files_created:
+                yield sse("error", message="未创建任何新文件，下载可能失败或视频已存在于目标目录")
+                return
 
             yield sse("done", files=files_created, save_dir=str(save_dir))
 
