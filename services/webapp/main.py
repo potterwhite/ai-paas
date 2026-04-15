@@ -576,12 +576,20 @@ function showDependencyAlert(deps) {{
 // Initial load
 fetch('/status').then(r => r.json()).then(updateGpuWidget).catch(() => {{}});
 // ── Global cookie alert ───────────────────────────────────────────────────
+function _fmtCookieAge(hours) {{
+  if (hours === null || hours === undefined) return '未知';
+  var m = Math.round(hours * 60);
+  if (m < 1) return '刚刚';
+  if (m < 60) return m + ' 分钟前';
+  var h = Math.floor(m / 60), mm = m % 60;
+  return mm > 0 ? h + ' 小时 ' + mm + ' 分钟前' : h + ' 小时前';
+}}
 function _checkCookieAlert() {{
   fetch('/api/cookie-status').then(r => r.json()).then(d => {{
     const el = document.getElementById('cookie-alert');
     if (!el || !d.enabled) {{ if (el) el.style.display='none'; return; }}
     if (!d.file_exists || (d.cookie_age_hours !== null && d.cookie_age_hours > 24)) {{
-      const msg = d.file_exists ? 'YouTube cookies 可能已过期（' + d.cookie_age_hours + ' 小时前刷新）' : 'YouTube cookies 文件不存在';
+      const msg = d.file_exists ? 'YouTube cookies 可能已过期（' + _fmtCookieAge(d.cookie_age_hours) + '刷新）' : 'YouTube cookies 文件不存在';
       const vnc = 'http://' + location.hostname + ':6901/vnc.html';
       el.innerHTML = '<div class="card" style="margin-bottom:16px;border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px 16px">'
         + '<span style="color:#f59e0b;font-weight:600">⚠️ ' + msg + '</span>'
@@ -1031,12 +1039,20 @@ fetch('/api/cookie-status').then(r => r.json()).then(d => {
   const el = document.getElementById('sub-cookie-hint');
   if (!el || !d.enabled) return;
   el.style.display = 'block';
+  function fAge(h) {
+    if (h === null) return '未知';
+    var m = Math.round(h * 60);
+    if (m < 1) return '刚刚';
+    if (m < 60) return m + ' 分钟前';
+    var hh = Math.floor(m / 60), mm = m % 60;
+    return mm > 0 ? hh + ' 小时 ' + mm + ' 分钟前' : hh + ' 小时前';
+  }
   if (d.file_exists && d.cookie_age_hours <= 24) {
     el.style.color = '#22c55e';
-    el.innerHTML = '🍪 YouTube 已登录（cookies ' + d.cookie_age_hours + ' 小时前刷新），可访问受限视频';
+    el.innerHTML = '🍪 YouTube 已登录（cookies ' + fAge(d.cookie_age_hours) + '刷新），可访问受限视频';
   } else if (d.file_exists) {
     el.style.color = '#f59e0b';
-    el.innerHTML = '⚠️ YouTube cookies 可能已过期（' + d.cookie_age_hours + 'h 前刷新）。<a href="http://' + location.hostname + ':6901/vnc.html" target="_blank" style="color:var(--accent)">重新登录</a>';
+    el.innerHTML = '⚠️ YouTube cookies 可能已过期（' + fAge(d.cookie_age_hours) + '刷新）。<a href="http://' + location.hostname + ':6901/vnc.html" target="_blank" style="color:var(--accent)">重新登录</a>';
   } else {
     el.style.color = 'var(--text-dim)';
     el.innerHTML = '🍪 未检测到 YouTube cookies。<a href="http://' + location.hostname + ':6901/vnc.html" target="_blank" style="color:var(--accent)">登录 YouTube</a> 可解锁受限视频';
@@ -1630,6 +1646,10 @@ async def gpu_page():
   <h2>YouTube Cookie 状态</h2>
   <div id="cookie-content"><div style="color:var(--text-dim);font-size:13px">加载中…</div></div>
 </div>
+<style>
+.ck-spin { display:inline-block; animation: ck-rotate 1s linear infinite; }
+@keyframes ck-rotate { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+</style>
 
 <style>
 .toggle-wrap { position:relative; display:inline-block; width:36px; height:20px; }
@@ -1895,6 +1915,16 @@ loadContainers();
 setInterval(loadContainers, 10000);
 
 // ── Cookie status card ──────────────────────────────────────────────────────
+function _fmtAge(hours) {
+  if (hours === null || hours === undefined) return '未知';
+  var totalMin = Math.round(hours * 60);
+  if (totalMin < 1) return '刚刚';
+  if (totalMin < 60) return totalMin + ' 分钟前';
+  var h = Math.floor(totalMin / 60);
+  var m = totalMin % 60;
+  return m > 0 ? h + ' 小时 ' + m + ' 分钟前' : h + ' 小时前';
+}
+
 function loadCookieStatus() {
   fetch('/api/cookie-status').then(r => r.json()).then(d => {
     const card = document.getElementById('cookie-card');
@@ -1903,20 +1933,24 @@ function loadCookieStatus() {
     if (!d.enabled) { card.style.display = 'none'; return; }
     card.style.display = 'block';
 
+    var isRefreshing = d.manager && d.manager.is_refreshing;
     let html = '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">';
 
-    // Cookie file status
-    if (!d.file_exists) {
+    // Refreshing spinner
+    if (isRefreshing) {
+      html += '<span class="badge" style="font-size:14px;background:rgba(59,130,246,0.15);color:#3b82f6">'
+        + '<span class="ck-spin">⟳</span> 正在刷新 Cookies…</span>';
+    } else if (!d.file_exists) {
       html += '<span class="badge badge-red" style="font-size:14px">❌ Cookie 文件不存在</span>';
     } else if (d.cookie_age_hours <= 12) {
       html += '<span class="badge badge-green" style="font-size:14px">✅ 正常</span>';
-      html += '<span style="color:var(--text-dim);font-size:13px">' + d.cookie_age_hours + ' 小时前刷新</span>';
+      html += '<span style="color:var(--text-dim);font-size:13px">' + _fmtAge(d.cookie_age_hours) + '刷新</span>';
     } else if (d.cookie_age_hours <= 24) {
       html += '<span class="badge" style="font-size:14px;background:rgba(245,158,11,0.15);color:#f59e0b">⚠️ 即将过期</span>';
-      html += '<span style="color:var(--text-dim);font-size:13px">' + d.cookie_age_hours + ' 小时前刷新</span>';
+      html += '<span style="color:var(--text-dim);font-size:13px">' + _fmtAge(d.cookie_age_hours) + '刷新</span>';
     } else {
       html += '<span class="badge badge-red" style="font-size:14px">❌ 可能已过期</span>';
-      html += '<span style="color:var(--text-dim);font-size:13px">' + d.cookie_age_hours + ' 小时前刷新</span>';
+      html += '<span style="color:var(--text-dim);font-size:13px">' + _fmtAge(d.cookie_age_hours) + '刷新</span>';
     }
 
     // Cookie Manager status
@@ -1934,18 +1968,30 @@ function loadCookieStatus() {
     const vnc = 'http://' + location.hostname + ':6901/vnc.html';
     html += '<div style="margin-top:10px;font-size:13px">';
     html += '<a href="' + vnc + '" target="_blank" style="color:var(--accent);margin-right:16px">🖥 打开 noVNC 登录 YouTube</a>';
-    html += '<a href="#" onclick="refreshCookies();return false;" style="color:var(--accent)">🔄 手动刷新 Cookies</a>';
+    if (isRefreshing) {
+      html += '<span style="color:var(--text-dim)"><span class="ck-spin">⟳</span> 刷新中…</span>';
+    } else {
+      html += '<a href="#" onclick="refreshCookies();return false;" style="color:var(--accent)">🔄 手动刷新 Cookies</a>';
+    }
     html += '</div>';
 
     ct.innerHTML = html;
+
+    // While refreshing, poll faster (every 3s)
+    if (isRefreshing && !window._ckFastPoll) {
+      window._ckFastPoll = setInterval(loadCookieStatus, 3000);
+    } else if (!isRefreshing && window._ckFastPoll) {
+      clearInterval(window._ckFastPoll);
+      window._ckFastPoll = null;
+    }
   }).catch(() => {});
 }
 
 async function refreshCookies() {
   try {
-    var r = await fetch('/api/cookie-refresh', {method:'POST'});
-    var d = await r.json();
-    alert(d.success ? '✅ ' + d.message : '❌ ' + d.message);
+    // Fire-and-forget — don't wait for the full refresh (can take 30s+)
+    fetch('/api/cookie-refresh', {method:'POST'});
+    // Immediately start fast polling to show spinner
     loadCookieStatus();
   } catch(e) { alert('请求失败: ' + e.message); }
 }
