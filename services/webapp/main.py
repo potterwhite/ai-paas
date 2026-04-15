@@ -63,6 +63,9 @@ def _ytdlp_base_cmd() -> list[str]:
         cmd.extend(["--cookies", YTDLP_COOKIES_PATH])
     return cmd
 
+# ── Branding ────────────────────────────────────────────────────────────────
+APP_NAME         = os.getenv("APP_NAME", "ai-paas")                # displayed in header + title
+
 # ── Model manager config (low-coupling: change these two vars to reuse in other projects) ──
 MODELS_ROOT      = os.getenv("MODELS_ROOT", "/models")          # host path mapped into container
 VLLM_CONTAINER   = os.getenv("VLLM_CONTAINER", "ai_vllm_qwen")  # default container; switching delegates to Router
@@ -220,7 +223,7 @@ def _monitor_download_dir(task_id: str, local_dir: str, poll_interval: float = 3
         except Exception:
             pass  # directory may not exist yet or be in transition
 
-app = FastAPI(title="ai-paas WebUI")
+app = FastAPI(title=f"{APP_NAME} WebUI")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
@@ -262,7 +265,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{title} — ai-paas</title>
+  <title>{title} — {APP_NAME}</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
   /* ── Switching overlay (orb effect) ─────────────────────────────────── */
@@ -360,7 +363,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
 </head>
 <body>
 <header>
-  <h1><span>ai</span>-paas</h1>
+  <h1>{APP_NAME}</h1>
   <nav>{nav_html}</nav>
 </header>
 
@@ -397,6 +400,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
 <div id="cookie-alert" style="display:none;"></div>
 {body}</main>
 <script>
+var APP_NAME = '{APP_NAME}';
 // ── Global switching overlay ────────────────────────────────────────────────
 var _swState = null; // null = idle; object = switching in progress
 
@@ -1584,7 +1588,7 @@ async function loadWorkflowBrowser() {
           + '<p style="font-size:14px;margin-bottom:8px">\u26a0\ufe0f \u5c1a\u672a\u914d\u7f6e HDD \u6a21\u578b\u8def\u5f84</p>'
           + '<p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">\u5927\u6a21\u578b\uff08\u5982 CogVideoX ~13 GB\uff09\u5efa\u8bae\u5b58\u653e\u5728 HDD \u4e2d\u3002\u8bf7\u5728 <code>.env</code> \u6587\u4ef6\u4e2d\u8bbe\u7f6e\uff1a</p>'
           + '<code style="font-size:12px;display:block;padding:8px;background:var(--bg);border-radius:4px">COMFYUI_MODELS_HDD=/mnt/hdd/comfyui-models</code>'
-          + '<p style="font-size:12px;color:var(--text-dim);margin-top:8px">\u8bbe\u7f6e\u540e\u9700\u91cd\u542f Docker \u6808: <code>cd ~/ai-paas && docker compose up -d</code></p>'
+          + '<p style="font-size:12px;color:var(--text-dim);margin-top:8px">设置后需重启 Docker 栈: <code>cd ~/' + APP_NAME + ' &amp;&amp; docker compose up -d</code></p>'
           + '</div>';
       }
     }
