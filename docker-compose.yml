@@ -255,11 +255,13 @@ services:
       - VLLM_CONTAINER=ai_vllm_qwen            # default container name; webapp delegates to Router for switching
       - HF_TOKEN=${HF_TOKEN:-}               # optional: HuggingFace token for gated models
       - YTDLP_COOKIES_PATH=/cookies/cookies.txt  # optional: yt-dlp cookie file for YouTube auth
+      - MEDIA_ROOT=${MEDIA_ROOT:+/media}         # set to /media only when MEDIA_ROOT is configured
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # GPU panel: docker API + nvidia-smi via exec into vllm containers
       - ${MODELS_PATH:-./models}:/models                       # model manager: read/write model weights
       - ./data/comfyui_workflows:/comfyui_workflows:ro         # built-in workflow JSONs for browser UI
       - ./data/cookies:/cookies:ro                             # yt-dlp cookies (managed by ai_cookie_manager)
+      - ${MEDIA_ROOT:-./data/media}:/media                     # media storage for downloads (NFS or local)
     networks:
       - default
     depends_on:
