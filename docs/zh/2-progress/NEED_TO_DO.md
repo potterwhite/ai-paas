@@ -15,7 +15,7 @@
 
 ### 待解决问题
 
-- **yt-dlp cookies 续期** ✅ 已实现：`ai_cookie_manager` sidecar 容器（Playwright + noVNC），自动每 6 小时刷新。待部署测试。
+- **yt-dlp cookies 续期** ✅ 已实现并部署验证：`ai_cookie_manager` sidecar 容器（Playwright + noVNC），自动每 6 小时刷新。容器运行中，已自动刷新 2 次，health API 返回 healthy。
   - 启动：`docker compose --profile cookies up -d`
   - 首次登录：`http://localhost:6901`（noVNC → YouTube 登录）
   - 健康检查：`curl http://localhost:6902/health`
