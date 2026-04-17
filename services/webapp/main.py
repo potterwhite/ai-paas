@@ -1219,45 +1219,100 @@ async def api_subtitle(
 async def download_page():
     body = """
 <div class="card">
-  <h2>YouTube 下载</h2>
+  <h2>媒体下载</h2>
   <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
-    下载 YouTube 视频和字幕到本地 NFS 存储。
+    支持 YouTube、B站、Twitter/X、Instagram、Facebook、TikTok 等 1000+ 平台。
   </p>
   <div id="dl-media-alert" style="display:none"></div>
   <div id="sub-cookie-hint" style="font-size:12px;margin-bottom:14px;display:none"></div>
 
   <div class="form-group">
-    <label>YouTube 链接</label>
-    <input type="url" id="dl-url" placeholder="https://www.youtube.com/watch?v=...">
+    <label>视频链接</label>
+    <input type="url" id="dl-url" placeholder="粘贴任意视频链接…">
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <!-- Download type tabs -->
+  <div style="display:flex;gap:8px;margin-bottom:16px">
+    <button class="dl-tab btn btn-primary" data-type="video" onclick="setDlType('video')">🎬 视频</button>
+    <button class="dl-tab btn btn-ghost" data-type="audio" onclick="setDlType('audio')">🎵 仅音频</button>
+    <button class="dl-tab btn btn-ghost" data-type="subs" onclick="setDlType('subs')">📄 仅字幕</button>
+  </div>
+
+  <!-- Video options -->
+  <div id="dl-panel-video">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
+      <div class="form-group" style="margin:0">
+        <label>分辨率</label>
+        <select id="dl-resolution">
+          <option value="best">最佳</option>
+          <option value="1080" selected>1080p</option>
+          <option value="720">720p</option>
+          <option value="480">480p</option>
+          <option value="360">360p</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label>视频格式</label>
+        <select id="dl-video-format">
+          <option value="mp4" selected>MP4</option>
+          <option value="mkv">MKV</option>
+          <option value="webm">WebM</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:13px;cursor:pointer;display:block;margin-bottom:8px">
+        <input type="checkbox" id="dl-write-subs" checked> 下载字幕文件（.srt）
+      </label>
+      <label style="font-size:13px;cursor:pointer;display:block;margin-bottom:8px">
+        <input type="checkbox" id="dl-embed-subs"> 嵌入字幕到视频
+      </label>
+      <label id="dl-transcribe-label" style="font-size:13px;cursor:pointer;display:block;padding-left:22px;color:var(--text-dim)" title="无字幕时用 Whisper AI 自动转录">
+        <input type="checkbox" id="dl-transcribe"> AI 转录（无字幕时，需 Whisper）
+      </label>
+    </div>
+  </div>
+
+  <!-- Audio options -->
+  <div id="dl-panel-audio" style="display:none">
     <div class="form-group">
-      <label>分辨率</label>
-      <select id="dl-resolution">
-        <option value="best">最佳</option>
-        <option value="1080" selected>1080p</option>
-        <option value="720">720p</option>
-        <option value="480">480p</option>
-        <option value="audio">仅音频 (MP3)</option>
+      <label>音频格式</label>
+      <select id="dl-audio-format">
+        <option value="mp3" selected>MP3（兼容性最好）</option>
+        <option value="m4a">M4A（AAC，高质量）</option>
+        <option value="flac">FLAC（无损）</option>
+        <option value="opus">Opus（体积最小）</option>
+        <option value="wav">WAV（无损，体积大）</option>
       </select>
     </div>
+  </div>
+
+  <!-- Subtitles options -->
+  <div id="dl-panel-subs" style="display:none">
     <div class="form-group">
+      <label>字幕语言</label>
+      <select id="dl-sub-lang">
+        <option value="zh,zh-Hans,zh-Hant,en">中英文（推荐）</option>
+        <option value="zh,zh-Hans,zh-Hant">仅中文</option>
+        <option value="en">仅英文</option>
+        <option value="ja">日语</option>
+        <option value="ko">韩语</option>
+        <option value="all">全部语言</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Save dir + playlist -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+    <div class="form-group" style="margin:0">
       <label>保存到</label>
       <select id="dl-dir"><option value="">加载中...</option></select>
     </div>
-  </div>
-
-  <div style="margin-bottom:16px">
-    <label style="font-size:13px;cursor:pointer;display:block;margin-bottom:10px">
-      <input type="checkbox" id="dl-video" checked> 下载视频
-    </label>
-    <label style="font-size:13px;cursor:pointer;display:block;margin-bottom:6px">
-      <input type="checkbox" id="dl-subs" checked onchange="toggleTranscribe()"> 下载字幕
-    </label>
-    <label id="dl-transcribe-label" style="font-size:13px;cursor:pointer;display:block;padding-left:22px;color:var(--text-dim)" title="无字幕时用 Whisper AI 自动转录">
-      <input type="checkbox" id="dl-transcribe"> AI 转录（无字幕时，需 Whisper）
-    </label>
+    <div style="display:flex;align-items:flex-end;padding-bottom:4px">
+      <label style="font-size:13px;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="dl-playlist"> 下载整个播放列表
+      </label>
+    </div>
   </div>
 
   <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">
@@ -1281,8 +1336,21 @@ async def download_page():
 <style>
 .ck-spin { display:inline-block; animation: ck-rotate 1s linear infinite; }
 @keyframes ck-rotate { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+.dl-tab.btn-primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+.dl-tab.btn-ghost { background:transparent; }
 </style>
 <script>
+let _dlType = 'video';
+function setDlType(t) {
+  _dlType = t;
+  document.querySelectorAll('.dl-tab').forEach(b => {
+    b.className = b.dataset.type === t ? 'dl-tab btn btn-primary' : 'dl-tab btn btn-ghost';
+  });
+  ['video','audio','subs'].forEach(p => {
+    document.getElementById('dl-panel-' + p).style.display = p === t ? '' : 'none';
+  });
+}
+
 // Load media directories
 fetch('/api/media-dirs').then(r => r.json()).then(d => {
   const sel = document.getElementById('dl-dir');
@@ -1298,12 +1366,10 @@ fetch('/api/media-dirs').then(r => r.json()).then(d => {
     alert.innerHTML = '<div class="card" style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px">⚠️ 媒体目录不可写。请检查 NFS 挂载权限。</div>';
   }
   sel.innerHTML = '';
-  // Root option first
   const rootOpt = document.createElement('option');
   rootOpt.value = '.';
   rootOpt.textContent = '📂 / (根目录)';
   sel.appendChild(rootOpt);
-  // Tree-style: top-level dirs with folder icon, sub-dirs indented
   d.dirs.forEach(item => {
     const opt = document.createElement('option');
     opt.value = item.path;
@@ -1333,21 +1399,9 @@ fetch('/api/cookie-status').then(r => r.json()).then(d => {
   }
 }).catch(() => {});
 
-// Transcribe toggle — only enabled when dl-subs is checked
-function toggleTranscribe() {
-  const subsOn = document.getElementById('dl-subs').checked;
-  const lbl = document.getElementById('dl-transcribe-label');
-  const cb = document.getElementById('dl-transcribe');
-  lbl.style.opacity = subsOn ? '1' : '0.4';
-  lbl.style.pointerEvents = subsOn ? 'auto' : 'none';
-  if (!subsOn) cb.checked = false;
-}
-// Init on load
-toggleTranscribe();
-
 async function startDownload() {
   const url = document.getElementById('dl-url').value.trim();
-  if (!url) { alert('请输入 YouTube 链接'); return; }
+  if (!url) { alert('请输入视频链接'); return; }
 
   const btn = document.getElementById('dl-btn');
   const prog = document.getElementById('dl-progress');
@@ -1369,11 +1423,16 @@ async function startDownload() {
   try {
     const body = {
       url: url,
+      download_type: _dlType,
       resolution: document.getElementById('dl-resolution').value,
-      save_dir: document.getElementById('dl-dir').value,
-      download_video: document.getElementById('dl-video').checked,
-      download_subs: document.getElementById('dl-subs').checked,
+      video_format: document.getElementById('dl-video-format').value,
+      audio_format: document.getElementById('dl-audio-format').value,
+      sub_lang: document.getElementById('dl-sub-lang').value,
+      embed_subs: document.getElementById('dl-embed-subs').checked,
+      write_subs: document.getElementById('dl-write-subs').checked,
       ai_transcribe: document.getElementById('dl-transcribe').checked,
+      playlist: document.getElementById('dl-playlist').checked,
+      save_dir: document.getElementById('dl-dir').value,
     };
 
     const resp = await fetch('/api/download', {
@@ -1397,7 +1456,6 @@ async function startDownload() {
         try {
           const ev = JSON.parse(line.slice(6));
           if (ev.type === 'progress') {
-            // Extract percentage if message is like "下载中: 58.1%"
             const pctMatch = ev.message.match(/(\\d+\\.?\\d*)%/);
             if (pctMatch) {
               const p = parseFloat(pctMatch[1]);
@@ -1450,14 +1508,19 @@ async function startDownload() {
 
 @app.post("/api/download")
 async def api_download(request: Request):
-    """Download YouTube video/subtitles via yt-dlp, stream progress via SSE."""
+    """Download video/audio/subtitles via yt-dlp, stream progress via SSE."""
     data = await request.json()
     url = data.get("url", "").strip()
+    download_type = data.get("download_type", "video")   # video | audio | subs
     resolution = data.get("resolution", "1080")
-    save_dir = data.get("save_dir", ".")
-    download_video = data.get("download_video", True)
-    download_subs = data.get("download_subs", True)
+    video_format = data.get("video_format", "mp4")
+    audio_format = data.get("audio_format", "mp3")
+    sub_lang = data.get("sub_lang", "zh,zh-Hans,zh-Hant,en")
+    embed_subs = data.get("embed_subs", False)
+    write_subs = data.get("write_subs", True)
     ai_transcribe = data.get("ai_transcribe", False)
+    playlist = data.get("playlist", False)
+    save_dir = data.get("save_dir", ".")
 
     if not url:
         return JSONResponse({"error": "URL is required"}, status_code=400)
@@ -1492,6 +1555,8 @@ async def api_download(request: Request):
         yield sse("progress", message=f"目标目录: {save_dir}")
 
         base_cmd = _ytdlp_base_cmd()
+        playlist_flag = [] if playlist else ["--no-playlist"]
+        output_tmpl = ["-o", str(target_dir / "%(title)s.%(ext)s")]
         files_created = []
 
         try:
@@ -1502,28 +1567,26 @@ async def api_download(request: Request):
             except Exception:
                 pass
 
-            # ── Step 1: Download video ───────────────────────────────────
-            if download_video:
+            # ── VIDEO ────────────────────────────────────────────────────
+            if download_type == "video":
                 yield sse("progress", message="正在下载视频...")
-
                 fmt_map = {
                     "best": "bestvideo+bestaudio/best",
                     "1080": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
-                    "720": "bestvideo[height<=720]+bestaudio/best[height<=720]",
-                    "480": "bestvideo[height<=480]+bestaudio/best[height<=480]",
-                    "audio": "bestaudio/best",
+                    "720":  "bestvideo[height<=720]+bestaudio/best[height<=720]",
+                    "480":  "bestvideo[height<=480]+bestaudio/best[height<=480]",
+                    "360":  "bestvideo[height<=360]+bestaudio/best[height<=360]",
                 }
                 fmt = fmt_map.get(resolution, fmt_map["1080"])
-
                 cmd = base_cmd + [
                     "-f", fmt,
-                    "--merge-output-format", "mp4" if resolution != "audio" else "mp3",
-                    "-o", str(target_dir / "%(title)s.%(ext)s"),
-                    "--no-playlist",
-                    "--newline",  # one progress line per update
-                ]
-                if download_subs:
-                    cmd += ["--write-auto-sub", "--write-sub", "--sub-lang", "en,zh,zh-Hans"]
+                    "--merge-output-format", video_format,
+                    "--newline",
+                ] + output_tmpl + playlist_flag
+                if write_subs:
+                    cmd += ["--write-auto-sub", "--write-sub", "--sub-lang", sub_lang]
+                if embed_subs:
+                    cmd += ["--embed-subs"]
                 cmd.append(url)
 
                 proc = await asyncio.create_subprocess_exec(
@@ -1534,45 +1597,76 @@ async def api_download(request: Request):
                 last_error = ""
                 async for line in proc.stdout:
                     text = line.decode("utf-8", errors="replace").strip()
-                    if text:
-                        # Capture error lines for better reporting
-                        if text.startswith("ERROR:"):
-                            last_error = text
-                        # Extract percentage from yt-dlp output
-                        pct_match = re.search(r'\[download\]\s+(\d+\.?\d*)%', text)
-                        if pct_match:
-                            yield sse("progress", message=f"下载中: {pct_match.group(1)}%")
-                        elif "[download] Destination:" in text:
-                            fname = text.split("Destination:")[-1].strip()
-                            yield sse("progress", message=f"文件: {Path(fname).name}")
-                        elif "[Merger]" in text or "Merging" in text:
-                            yield sse("progress", message="合并音视频...")
-                        elif text.startswith("[download] 100%"):
-                            yield sse("progress", message="下载完成，处理中...")
-
+                    if not text:
+                        continue
+                    if text.startswith("ERROR:"):
+                        last_error = text
+                    pct_match = re.search(r'\[download\]\s+(\d+\.?\d*)%', text)
+                    if pct_match:
+                        yield sse("progress", message=f"下载中: {pct_match.group(1)}%")
+                    elif "[download] Destination:" in text:
+                        fname = text.split("Destination:")[-1].strip()
+                        yield sse("progress", message=f"文件: {Path(fname).name}")
+                    elif "[Merger]" in text or "Merging" in text:
+                        yield sse("progress", message="合并音视频...")
+                    elif "[EmbedSubtitle]" in text:
+                        yield sse("progress", message="嵌入字幕...")
+                    elif text.startswith("[download] 100%"):
+                        yield sse("progress", message="下载完成，处理中...")
                 await proc.wait()
                 if proc.returncode != 0:
-                    # Check if files were actually created despite non-zero exit
-                    # (yt-dlp sometimes exits non-zero even when download succeeded)
                     created = [f for f in target_dir.iterdir()
                                if f.is_file() and not f.name.startswith(".")]
                     if not created:
-                        err_msg = last_error or "视频下载失败，请检查链接是否正确"
-                        yield sse("error", message=err_msg)
+                        yield sse("error", message=last_error or "视频下载失败，请检查链接是否正确")
                         return
-                    # Files exist — treat as partial success, continue
 
-            # ── Step 2: Download subtitles only ──────────────────────────
-            elif download_subs:
-                yield sse("progress", message="正在下载字幕...")
+            # ── AUDIO ────────────────────────────────────────────────────
+            elif download_type == "audio":
+                yield sse("progress", message=f"正在提取音频 ({audio_format.upper()})...")
+                cmd = base_cmd + [
+                    "-f", "bestaudio/best",
+                    "-x", "--audio-format", audio_format,
+                    "--audio-quality", "0",
+                    "--newline",
+                ] + output_tmpl + playlist_flag + [url]
+
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                last_error = ""
+                async for line in proc.stdout:
+                    text = line.decode("utf-8", errors="replace").strip()
+                    if not text:
+                        continue
+                    if text.startswith("ERROR:"):
+                        last_error = text
+                    pct_match = re.search(r'\[download\]\s+(\d+\.?\d*)%', text)
+                    if pct_match:
+                        yield sse("progress", message=f"下载中: {pct_match.group(1)}%")
+                    elif "[ExtractAudio]" in text:
+                        yield sse("progress", message="提取音频...")
+                    elif "[download] Destination:" in text:
+                        fname = text.split("Destination:")[-1].strip()
+                        yield sse("progress", message=f"文件: {Path(fname).name}")
+                await proc.wait()
+                if proc.returncode != 0:
+                    created = [f for f in target_dir.iterdir() if f.is_file() and not f.name.startswith(".")]
+                    if not created:
+                        yield sse("error", message=last_error or "音频下载失败，请检查链接是否正确")
+                        return
+
+            # ── SUBTITLES ONLY ───────────────────────────────────────────
+            elif download_type == "subs":
+                yield sse("progress", message=f"正在下载字幕 ({sub_lang})...")
                 cmd = base_cmd + [
                     "--write-auto-sub", "--write-sub",
-                    "--sub-lang", "en,zh,zh-Hans",
+                    "--sub-lang", sub_lang,
                     "--skip-download",
-                    "-o", str(target_dir / "%(title)s.%(ext)s"),
-                    "--no-playlist",
-                    url,
-                ]
+                ] + output_tmpl + playlist_flag + [url]
+
                 proc = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
@@ -1584,18 +1678,21 @@ async def api_download(request: Request):
                         yield sse("progress", message=text[:120])
                 await proc.wait()
 
-            # ── Step 3: AI transcribe (if requested) ─────────────────────
+            # ── AI transcribe (stub — Whisper integration pending) ───────
             if ai_transcribe:
-                yield sse("progress", message="AI 转录功能暂未实现（需要 Whisper 集成）")
+                yield sse("progress", message="AI 转录：正在调用 Whisper...")
+                # TODO: POST to WHISPER_BASE_URL /v1/audio/transcriptions
+                # For now, check if any audio/video file exists and call whisper
+                yield sse("progress", message="AI 转录暂未完全集成，字幕文件已下载（如有）")
 
-            # List only files newly created by this download (not pre-existing ones)
+            # Collect newly created files
             for f in sorted(target_dir.iterdir()):
                 if f.is_file() and not f.name.startswith(".") and f.name not in existing_files:
                     size_mb = f.stat().st_size / (1024 * 1024)
                     files_created.append(f"{f.name} ({size_mb:.1f} MB)")
 
             if not files_created:
-                yield sse("error", message="未创建任何新文件，下载可能失败或视频已存在于目标目录")
+                yield sse("error", message="未创建任何新文件，下载可能失败或文件已存在于目标目录")
                 return
 
             yield sse("done", files=files_created, save_dir=str(save_dir))
