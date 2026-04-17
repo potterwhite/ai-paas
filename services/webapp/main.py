@@ -916,17 +916,23 @@ async def media_dirs():
     root = Path(MEDIA_ROOT)
     dirs = []
     try:
-        for p in sorted(root.iterdir()):
-            if not p.is_dir() or p.name.startswith("."):
-                continue
-            rel = p.name
-            dirs.append({"path": rel, "writable": os.access(p, os.W_OK)})
-            # Second level
-            for sub in sorted(p.iterdir()):
-                if sub.is_dir() and not sub.name.startswith("."):
-                    dirs.append({"path": f"{rel}/{sub.name}", "writable": os.access(sub, os.W_OK)})
+        top_dirs = sorted(root.iterdir())
     except PermissionError:
-        pass
+        top_dirs = []
+
+    for p in top_dirs:
+        if not p.is_dir() or p.name.startswith("."):
+            continue
+        rel = p.name
+        dirs.append({"path": rel, "writable": os.access(p, os.W_OK), "depth": 0})
+        # Second level — isolate PermissionError per directory
+        try:
+            sub_dirs = sorted(p.iterdir())
+        except PermissionError:
+            continue
+        for sub in sub_dirs:
+            if sub.is_dir() and not sub.name.startswith("."):
+                dirs.append({"path": f"{rel}/{sub.name}", "writable": os.access(sub, os.W_OK), "depth": 1})
 
     writable = os.access(MEDIA_ROOT, os.W_OK)
     return JSONResponse({"configured": True, "writable": writable, "dirs": dirs})
@@ -1292,18 +1298,25 @@ fetch('/api/media-dirs').then(r => r.json()).then(d => {
     alert.innerHTML = '<div class="card" style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px">⚠️ 媒体目录不可写。请检查 NFS 挂载权限。</div>';
   }
   sel.innerHTML = '';
+  // Root option first
+  const rootOpt = document.createElement('option');
+  rootOpt.value = '.';
+  rootOpt.textContent = '📂 / (根目录)';
+  sel.appendChild(rootOpt);
+  // Tree-style: top-level dirs with folder icon, sub-dirs indented
   d.dirs.forEach(item => {
     const opt = document.createElement('option');
     opt.value = item.path;
-    opt.textContent = item.writable ? item.path : item.path + ' 🔒';
+    const lockIcon = item.writable ? '' : ' 🔒';
+    if (item.depth === 0) {
+      opt.textContent = '📁 ' + item.path + lockIcon;
+      opt.style.fontWeight = '600';
+    } else {
+      opt.textContent = '    └─ ' + item.path.split('/').pop() + lockIcon;
+    }
     if (!item.writable) opt.style.color = '#999';
     sel.appendChild(opt);
   });
-  // Add root option
-  const rootOpt = document.createElement('option');
-  rootOpt.value = '.';
-  rootOpt.textContent = '/ (根目录)';
-  sel.insertBefore(rootOpt, sel.firstChild);
 }).catch(() => {});
 
 // Cookie hint
