@@ -908,34 +908,34 @@ async def cookie_refresh_proxy():
 
 
 @app.get("/api/media-dirs")
-async def media_dirs():
-    """Scan MEDIA_ROOT for up-to-2-level subdirectories."""
+async def media_dirs(max_depth: int = 3, max_dirs: int = 300):
+    """Recursively scan MEDIA_ROOT up to max_depth levels (default 3, cap 300 dirs)."""
     if not MEDIA_ROOT or not Path(MEDIA_ROOT).is_dir():
         return JSONResponse({"configured": False, "dirs": []})
 
     root = Path(MEDIA_ROOT)
-    dirs = []
-    try:
-        top_dirs = sorted(root.iterdir())
-    except PermissionError:
-        top_dirs = []
+    dirs: list[dict] = []
 
-    for p in top_dirs:
-        if not p.is_dir() or p.name.startswith("."):
-            continue
-        rel = p.name
-        dirs.append({"path": rel, "writable": os.access(p, os.W_OK), "depth": 0})
-        # Second level — isolate PermissionError per directory
+    def _scan(path: Path, depth: int, rel_prefix: str) -> None:
+        if depth > max_depth or len(dirs) >= max_dirs:
+            return
         try:
-            sub_dirs = sorted(p.iterdir())
+            children = sorted(path.iterdir())
         except PermissionError:
-            continue
-        for sub in sub_dirs:
-            if sub.is_dir() and not sub.name.startswith("."):
-                dirs.append({"path": f"{rel}/{sub.name}", "writable": os.access(sub, os.W_OK), "depth": 1})
+            return
+        for child in children:
+            if len(dirs) >= max_dirs:
+                break
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            rel = f"{rel_prefix}/{child.name}" if rel_prefix else child.name
+            dirs.append({"path": rel, "writable": os.access(child, os.W_OK), "depth": depth})
+            _scan(child, depth + 1, rel)
 
+    _scan(root, 0, "")
     writable = os.access(MEDIA_ROOT, os.W_OK)
-    return JSONResponse({"configured": True, "writable": writable, "dirs": dirs})
+    truncated = len(dirs) >= max_dirs
+    return JSONResponse({"configured": True, "writable": writable, "dirs": dirs, "truncated": truncated})
 
 
 # ── /  (Home) ────────────────────────────────────────────────────────────────
@@ -1330,7 +1330,7 @@ async def download_page():
   </div>
 
   <!-- Save dir + playlist -->
-  <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin-top:8px;margin-bottom:16px">
+  <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin-top:8px;margin-bottom:4px">
     <div class="form-group" style="margin:0">
       <label>保存到</label>
       <select id="dl-dir"><option value="">加载中...</option></select>
@@ -1339,6 +1339,12 @@ async def download_page():
       <input type="checkbox" id="dl-playlist"> 下载整个播放列表
     </label>
   </div>
+  <div id="dl-dir-hint" style="display:none;font-size:11px;color:var(--text-dim);margin-bottom:4px"></div>
+  <div id="dl-dir-custom-wrap" style="display:none;margin-bottom:16px">
+    <input type="text" id="dl-dir-custom" placeholder="手动输入相对路径，例如 tv/Doraemon/Season2"
+      style="font-size:12px;padding:4px 8px" oninput="syncCustomDir()">
+  </div>
+  <div id="dl-dir-spacer" style="margin-bottom:16px"></div>
 
   <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">📥 开始下载</button>
 
@@ -1475,12 +1481,32 @@ fetch('/api/media-dirs').then(r => r.json()).then(d => {
     const opt = document.createElement('option');
     opt.value = item.path;
     const lock = item.writable ? '' : ' 🔒';
-    opt.textContent = item.depth === 0 ? '📁 ' + item.path + lock : '    └─ ' + item.path.split('/').pop() + lock;
+    const indent = '\\u00a0\\u00a0\\u00a0\\u00a0'.repeat(item.depth);
+    const icon = item.depth === 0 ? '📁 ' : '└─ ';
+    opt.textContent = indent + icon + item.path.split('/').pop() + lock;
     if (item.depth === 0) opt.style.fontWeight = '600';
     if (!item.writable) opt.style.color = '#999';
     sel.appendChild(opt);
   });
+  // Truncated hint + manual input
+  const hint = document.getElementById('dl-dir-hint');
+  const customWrap = document.getElementById('dl-dir-custom-wrap');
+  const spacer = document.getElementById('dl-dir-spacer');
+  if (d.truncated) {
+    hint.style.display = '';
+    hint.textContent = '⚠️ 目录过多，仅显示前 ' + d.dirs.length + ' 个（深度3层）。如需更深的路径，请手动输入：';
+    customWrap.style.display = '';
+    spacer.style.display = 'none';
+  } else {
+    spacer.style.marginBottom = '16px';
+  }
 }).catch(() => {});
+
+function syncCustomDir() {
+  const val = document.getElementById('dl-dir-custom').value.trim();
+  // When user types in custom box, override the select value on submit
+  // (handled in startDownload by checking custom box first)
+}
 
 // ── Cookie hint ──────────────────────────────────────────────────────────────
 fetch('/api/cookie-status').then(r => r.json()).then(d => {
@@ -1546,7 +1572,7 @@ async function startDownload() {
       write_subs:    document.getElementById('dl-write-subs').checked,
       ai_transcribe: document.getElementById('dl-transcribe').checked,
       playlist:      document.getElementById('dl-playlist').checked,
-      save_dir:      document.getElementById('dl-dir').value,
+      save_dir:      (document.getElementById('dl-dir-custom').value.trim() || document.getElementById('dl-dir').value),
     };
 
     const resp = await fetch('/api/download', {
