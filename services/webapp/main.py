@@ -1226,98 +1226,121 @@ async def download_page():
   <div id="dl-media-alert" style="display:none"></div>
   <div id="sub-cookie-hint" style="font-size:12px;margin-bottom:14px;display:none"></div>
 
-  <div class="form-group">
-    <label>视频链接</label>
-    <input type="url" id="dl-url" placeholder="粘贴任意视频链接…">
+  <!-- URL + probe -->
+  <div style="display:flex;gap:8px;margin-bottom:4px">
+    <input type="url" id="dl-url" placeholder="粘贴任意视频链接…" style="flex:1" onblur="probeUrl()">
+    <button class="btn btn-ghost" id="dl-probe-btn" onclick="probeUrl()" style="white-space:nowrap;font-size:12px">🔍 探测</button>
+  </div>
+  <div id="dl-probe-status" style="font-size:12px;color:var(--text-dim);margin-bottom:16px;min-height:18px"></div>
+
+  <!-- ── Section 1: Video ── -->
+  <div class="dl-section" id="sec-video">
+    <div class="dl-section-header" onclick="toggleSection('video')">
+      <span id="sec-video-icon">▼</span>
+      <span style="font-weight:600">🎬 视频</span>
+      <label onclick="event.stopPropagation()" style="margin-left:auto;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="dl-enable-video" checked onchange="toggleEnable('video')"> 启用
+      </label>
+    </div>
+    <div id="sec-video-body" class="dl-section-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="margin:0">
+          <label>分辨率</label>
+          <select id="dl-resolution">
+            <option value="best">最佳</option>
+            <option value="1080" selected>1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+            <option value="360">360p</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>格式</label>
+          <select id="dl-video-format">
+            <option value="mp4" selected>MP4</option>
+            <option value="mkv">MKV</option>
+            <option value="webm">WebM</option>
+          </select>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- Download type tabs -->
-  <div style="display:flex;gap:8px;margin-bottom:16px">
-    <button class="dl-tab btn btn-primary" data-type="video" onclick="setDlType('video')">🎬 视频</button>
-    <button class="dl-tab btn btn-ghost" data-type="audio" onclick="setDlType('audio')">🎵 仅音频</button>
-    <button class="dl-tab btn btn-ghost" data-type="subs" onclick="setDlType('subs')">📄 仅字幕</button>
-  </div>
-
-  <!-- Video options -->
-  <div id="dl-panel-video">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
+  <!-- ── Section 2: Audio ── -->
+  <div class="dl-section" id="sec-audio">
+    <div class="dl-section-header" onclick="toggleSection('audio')">
+      <span id="sec-audio-icon">▼</span>
+      <span style="font-weight:600">🎵 音频</span>
+      <label onclick="event.stopPropagation()" style="margin-left:auto;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="dl-enable-audio" onchange="toggleEnable('audio')"> 单独保存音频
+      </label>
+    </div>
+    <div id="sec-audio-body" class="dl-section-body">
       <div class="form-group" style="margin:0">
-        <label>分辨率</label>
-        <select id="dl-resolution">
-          <option value="best">最佳</option>
-          <option value="1080" selected>1080p</option>
-          <option value="720">720p</option>
-          <option value="480">480p</option>
-          <option value="360">360p</option>
+        <label>音频格式</label>
+        <select id="dl-audio-format">
+          <option value="mp3" selected>MP3（兼容性最好）</option>
+          <option value="m4a">M4A（AAC，高质量）</option>
+          <option value="flac">FLAC（无损）</option>
+          <option value="opus">Opus（体积最小）</option>
+          <option value="wav">WAV（无损，体积大）</option>
         </select>
       </div>
-      <div class="form-group" style="margin:0">
-        <label>视频格式</label>
-        <select id="dl-video-format">
-          <option value="mp4" selected>MP4</option>
-          <option value="mkv">MKV</option>
-          <option value="webm">WebM</option>
-        </select>
+    </div>
+  </div>
+
+  <!-- ── Section 3: Subtitles ── -->
+  <div class="dl-section" id="sec-subs">
+    <div class="dl-section-header" onclick="toggleSection('subs')">
+      <span id="sec-subs-icon">▼</span>
+      <span style="font-weight:600">📄 字幕</span>
+      <label onclick="event.stopPropagation()" style="margin-left:auto;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="dl-enable-subs" checked onchange="toggleEnable('subs')"> 启用
+      </label>
+    </div>
+    <div id="sec-subs-body" class="dl-section-body">
+      <div id="dl-subs-ai-hint" style="display:none;font-size:12px;padding:8px 10px;border-radius:6px;background:rgba(245,158,11,0.12);border:1px solid #f59e0b;margin-bottom:10px">
+        ⚠️ 此内容无内嵌字幕，启用字幕将使用 Whisper AI 自动生成。
       </div>
-    </div>
-    <div style="margin-bottom:16px">
-      <label style="font-size:13px;cursor:pointer;display:block;margin-bottom:8px">
-        <input type="checkbox" id="dl-write-subs" checked> 下载字幕文件（.srt）
-      </label>
-      <label style="font-size:13px;cursor:pointer;display:block;margin-bottom:8px">
-        <input type="checkbox" id="dl-embed-subs"> 嵌入字幕到视频
-      </label>
-      <label id="dl-transcribe-label" style="font-size:13px;cursor:pointer;display:block;padding-left:22px;color:var(--text-dim)" title="无字幕时用 Whisper AI 自动转录">
-        <input type="checkbox" id="dl-transcribe"> AI 转录（无字幕时，需 Whisper）
-      </label>
-    </div>
-  </div>
-
-  <!-- Audio options -->
-  <div id="dl-panel-audio" style="display:none">
-    <div class="form-group">
-      <label>音频格式</label>
-      <select id="dl-audio-format">
-        <option value="mp3" selected>MP3（兼容性最好）</option>
-        <option value="m4a">M4A（AAC，高质量）</option>
-        <option value="flac">FLAC（无损）</option>
-        <option value="opus">Opus（体积最小）</option>
-        <option value="wav">WAV（无损，体积大）</option>
-      </select>
-    </div>
-  </div>
-
-  <!-- Subtitles options -->
-  <div id="dl-panel-subs" style="display:none">
-    <div class="form-group">
-      <label>字幕语言</label>
-      <select id="dl-sub-lang">
-        <option value="zh,zh-Hans,zh-Hant,en">中英文（推荐）</option>
-        <option value="zh,zh-Hans,zh-Hant">仅中文</option>
-        <option value="en">仅英文</option>
-        <option value="ja">日语</option>
-        <option value="ko">韩语</option>
-        <option value="all">全部语言</option>
-      </select>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+        <div class="form-group" style="margin:0">
+          <label>语言</label>
+          <select id="dl-sub-lang">
+            <option value="zh,zh-Hans,zh-Hant,en">中英文（推荐）</option>
+            <option value="zh,zh-Hans,zh-Hant">仅中文</option>
+            <option value="en">仅英文</option>
+            <option value="ja">日语</option>
+            <option value="ko">韩语</option>
+            <option value="all">全部语言</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end">
+          <label style="font-size:12px;cursor:pointer">
+            <input type="checkbox" id="dl-embed-subs"> 嵌入字幕到视频
+          </label>
+          <label style="font-size:12px;cursor:pointer">
+            <input type="checkbox" id="dl-write-subs" checked> 下载字幕文件 (.srt)
+          </label>
+          <label style="font-size:12px;cursor:pointer" id="dl-ai-transcribe-label">
+            <input type="checkbox" id="dl-transcribe"> AI 生成字幕（Whisper）
+          </label>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- Save dir + playlist -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+  <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin-top:8px;margin-bottom:16px">
     <div class="form-group" style="margin:0">
       <label>保存到</label>
       <select id="dl-dir"><option value="">加载中...</option></select>
     </div>
-    <div style="display:flex;align-items:flex-end;padding-bottom:4px">
-      <label style="font-size:13px;cursor:pointer;white-space:nowrap">
-        <input type="checkbox" id="dl-playlist"> 下载整个播放列表
-      </label>
-    </div>
+    <label style="font-size:12px;cursor:pointer;white-space:nowrap;padding-bottom:6px">
+      <input type="checkbox" id="dl-playlist"> 下载整个播放列表
+    </label>
   </div>
 
-  <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">
-    📥 开始下载
-  </button>
+  <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">📥 开始下载</button>
 
   <div id="dl-progress" style="display:none;margin-top:16px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
@@ -1330,28 +1353,107 @@ async def download_page():
     </div>
     <pre id="dl-log" style="max-height:200px;overflow-y:auto;font-size:11px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;white-space:pre-wrap;color:var(--text-dim)"></pre>
   </div>
-
   <div id="dl-result" style="display:none;margin-top:16px"></div>
 </div>
+
 <style>
 .ck-spin { display:inline-block; animation: ck-rotate 1s linear infinite; }
 @keyframes ck-rotate { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
-.dl-tab.btn-primary { background:var(--accent); color:#fff; border-color:var(--accent); }
-.dl-tab.btn-ghost { background:transparent; }
+.dl-section { border:1px solid var(--border); border-radius:8px; margin-bottom:10px; overflow:hidden; }
+.dl-section-header { display:flex; align-items:center; gap:8px; padding:10px 14px; cursor:pointer; background:var(--surface); font-size:13px; user-select:none; }
+.dl-section-header:hover { background:var(--border); }
+.dl-section-body { padding:12px 14px; }
+.dl-section.disabled { opacity:0.45; pointer-events:none; }
+.dl-section.disabled .dl-section-header { pointer-events:auto; }
 </style>
+
 <script>
-let _dlType = 'video';
-function setDlType(t) {
-  _dlType = t;
-  document.querySelectorAll('.dl-tab').forEach(b => {
-    b.className = b.dataset.type === t ? 'dl-tab btn btn-primary' : 'dl-tab btn btn-ghost';
-  });
-  ['video','audio','subs'].forEach(p => {
-    document.getElementById('dl-panel-' + p).style.display = p === t ? '' : 'none';
-  });
+// ── Section collapse/expand ──────────────────────────────────────────────────
+const _sectionOpen = {video: true, audio: true, subs: true};
+function toggleSection(s) {
+  _sectionOpen[s] = !_sectionOpen[s];
+  document.getElementById('sec-' + s + '-body').style.display = _sectionOpen[s] ? '' : 'none';
+  document.getElementById('sec-' + s + '-icon').textContent = _sectionOpen[s] ? '▼' : '▶';
+}
+function toggleEnable(s) {
+  const enabled = document.getElementById('dl-enable-' + s).checked;
+  const sec = document.getElementById('sec-' + s);
+  sec.classList.toggle('disabled', !enabled);
+}
+// Init: audio section closed by default (not enabled)
+document.getElementById('sec-audio-body').style.display = 'none';
+document.getElementById('sec-audio-icon').textContent = '▶';
+_sectionOpen.audio = false;
+
+// ── URL probe ────────────────────────────────────────────────────────────────
+let _probeAbort = null;
+let _lastProbedUrl = '';
+async function probeUrl() {
+  const url = document.getElementById('dl-url').value.trim();
+  if (!url || url === _lastProbedUrl) return;
+  _lastProbedUrl = url;
+  if (_probeAbort) _probeAbort.abort();
+  _probeAbort = new AbortController();
+  const statusEl = document.getElementById('dl-probe-status');
+  statusEl.textContent = '🔍 探测中...';
+  statusEl.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch('/api/download/probe', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url}),
+      signal: _probeAbort.signal,
+    });
+    const d = await r.json();
+    if (d.error) { statusEl.textContent = '⚠️ ' + d.error; return; }
+
+    // Video availability
+    const secVideo = document.getElementById('sec-video');
+    const enableVideoCb = document.getElementById('dl-enable-video');
+    if (!d.has_video) {
+      secVideo.classList.add('disabled');
+      enableVideoCb.checked = false;
+      secVideo.querySelector('.dl-section-header span:nth-child(2)').textContent = '🎬 视频（无视频流，已禁用）';
+    } else {
+      secVideo.classList.remove('disabled');
+      enableVideoCb.checked = true;
+      secVideo.querySelector('.dl-section-header span:nth-child(2)').textContent = '🎬 视频';
+    }
+
+    // Subtitle availability
+    const aiHint = document.getElementById('dl-subs-ai-hint');
+    const transcribeCb = document.getElementById('dl-transcribe');
+    if (!d.has_subs) {
+      aiHint.style.display = '';
+      transcribeCb.checked = true;
+    } else {
+      aiHint.style.display = 'none';
+      transcribeCb.checked = false;
+    }
+
+    // Playlist
+    if (d.is_playlist) {
+      document.getElementById('dl-playlist').checked = true;
+    }
+
+    // Status line
+    const parts = [];
+    if (d.title) parts.push(d.title.length > 50 ? d.title.slice(0, 50) + '…' : d.title);
+    if (d.duration) parts.push(_fmtDuration(d.duration));
+    if (d.uploader) parts.push(d.uploader);
+    statusEl.textContent = parts.length ? '✅ ' + parts.join(' · ') : '✅ 探测成功';
+    statusEl.style.color = '#22c55e';
+  } catch(e) {
+    if (e.name !== 'AbortError') { statusEl.textContent = '探测失败（可直接下载）'; statusEl.style.color = 'var(--text-dim)'; }
+  }
+}
+function _fmtDuration(s) {
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  if (h) return h + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+  return m + ':' + String(sec).padStart(2,'0');
 }
 
-// Load media directories
+// ── Media dirs ───────────────────────────────────────────────────────────────
 fetch('/api/media-dirs').then(r => r.json()).then(d => {
   const sel = document.getElementById('dl-dir');
   const alert = document.getElementById('dl-media-alert');
@@ -1363,29 +1465,24 @@ fetch('/api/media-dirs').then(r => r.json()).then(d => {
   }
   if (!d.writable) {
     alert.style.display = 'block';
-    alert.innerHTML = '<div class="card" style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px">⚠️ 媒体目录不可写。请检查 NFS 挂载权限。</div>';
+    alert.innerHTML = '<div class="card" style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px">⚠️ 媒体目录不可写。</div>';
   }
   sel.innerHTML = '';
   const rootOpt = document.createElement('option');
-  rootOpt.value = '.';
-  rootOpt.textContent = '📂 / (根目录)';
+  rootOpt.value = '.'; rootOpt.textContent = '📂 / (根目录)';
   sel.appendChild(rootOpt);
   d.dirs.forEach(item => {
     const opt = document.createElement('option');
     opt.value = item.path;
-    const lockIcon = item.writable ? '' : ' 🔒';
-    if (item.depth === 0) {
-      opt.textContent = '📁 ' + item.path + lockIcon;
-      opt.style.fontWeight = '600';
-    } else {
-      opt.textContent = '    └─ ' + item.path.split('/').pop() + lockIcon;
-    }
+    const lock = item.writable ? '' : ' 🔒';
+    opt.textContent = item.depth === 0 ? '📁 ' + item.path + lock : '    └─ ' + item.path.split('/').pop() + lock;
+    if (item.depth === 0) opt.style.fontWeight = '600';
     if (!item.writable) opt.style.color = '#999';
     sel.appendChild(opt);
   });
 }).catch(() => {});
 
-// Cookie hint
+// ── Cookie hint ──────────────────────────────────────────────────────────────
 fetch('/api/cookie-status').then(r => r.json()).then(d => {
   const el = document.getElementById('sub-cookie-hint');
   if (!el || !d.enabled) return;
@@ -1399,9 +1496,23 @@ fetch('/api/cookie-status').then(r => r.json()).then(d => {
   }
 }).catch(() => {});
 
+// ── Start download ───────────────────────────────────────────────────────────
 async function startDownload() {
   const url = document.getElementById('dl-url').value.trim();
   if (!url) { alert('请输入视频链接'); return; }
+
+  const videoEnabled = document.getElementById('dl-enable-video').checked;
+  const audioEnabled = document.getElementById('dl-enable-audio').checked;
+  const subsEnabled  = document.getElementById('dl-enable-subs').checked;
+  if (!videoEnabled && !audioEnabled && !subsEnabled) {
+    alert('请至少启用一个下载项（视频/音频/字幕）');
+    return;
+  }
+
+  // Determine primary download_type for backend
+  let download_type = 'video';
+  if (!videoEnabled && audioEnabled) download_type = 'audio';
+  else if (!videoEnabled && !audioEnabled && subsEnabled) download_type = 'subs';
 
   const btn = document.getElementById('dl-btn');
   const prog = document.getElementById('dl-progress');
@@ -1422,29 +1533,28 @@ async function startDownload() {
 
   try {
     const body = {
-      url: url,
-      download_type: _dlType,
-      resolution: document.getElementById('dl-resolution').value,
-      video_format: document.getElementById('dl-video-format').value,
-      audio_format: document.getElementById('dl-audio-format').value,
-      sub_lang: document.getElementById('dl-sub-lang').value,
-      embed_subs: document.getElementById('dl-embed-subs').checked,
-      write_subs: document.getElementById('dl-write-subs').checked,
+      url,
+      download_type,
+      video_enabled: videoEnabled,
+      audio_enabled: audioEnabled,
+      subs_enabled:  subsEnabled,
+      resolution:    document.getElementById('dl-resolution').value,
+      video_format:  document.getElementById('dl-video-format').value,
+      audio_format:  document.getElementById('dl-audio-format').value,
+      sub_lang:      document.getElementById('dl-sub-lang').value,
+      embed_subs:    document.getElementById('dl-embed-subs').checked,
+      write_subs:    document.getElementById('dl-write-subs').checked,
       ai_transcribe: document.getElementById('dl-transcribe').checked,
-      playlist: document.getElementById('dl-playlist').checked,
-      save_dir: document.getElementById('dl-dir').value,
+      playlist:      document.getElementById('dl-playlist').checked,
+      save_dir:      document.getElementById('dl-dir').value,
     };
 
     const resp = await fetch('/api/download', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
     });
-
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-
     while (true) {
       const {done, value} = await reader.read();
       if (done) break;
@@ -1456,34 +1566,17 @@ async function startDownload() {
         try {
           const ev = JSON.parse(line.slice(6));
           if (ev.type === 'progress') {
-            const pctMatch = ev.message.match(/(\\d+\\.?\\d*)%/);
-            if (pctMatch) {
-              const p = parseFloat(pctMatch[1]);
-              bar.style.width = p + '%';
-              pct.textContent = p.toFixed(1) + '%';
-              status.textContent = '正在下载...';
-            } else {
-              status.textContent = ev.message;
-              pct.textContent = '';
-            }
+            const m = ev.message.match(/(\\d+\\.?\\d*)%/);
+            if (m) { bar.style.width = m[1] + '%'; pct.textContent = parseFloat(m[1]).toFixed(1) + '%'; status.textContent = '正在下载...'; }
+            else { status.textContent = ev.message; pct.textContent = ''; }
             log.textContent += ev.message + '\\n';
             log.scrollTop = log.scrollHeight;
           } else if (ev.type === 'done') {
-            bar.style.width = '100%';
-            pct.textContent = '100%';
-            status.textContent = '✅ 下载完成';
-            prog.style.display = 'none';
-            let rhtml = '<div class="card" style="border:1px solid #22c55e;background:rgba(34,197,94,0.08);padding:12px">';
-            rhtml += '<strong>✅ 下载完成</strong><br>';
-            if (ev.files && ev.files.length > 0) {
-              rhtml += '<ul style="margin:8px 0 0;padding-left:20px;font-size:13px">';
-              ev.files.forEach(f => rhtml += '<li>' + f + '</li>');
-              rhtml += '</ul>';
-            }
-            rhtml += '<div style="font-size:12px;color:var(--text-dim);margin-top:6px">保存到: ' + ev.save_dir + '</div>';
-            rhtml += '</div>';
-            result.innerHTML = rhtml;
-            result.style.display = 'block';
+            bar.style.width = '100%'; pct.textContent = '100%'; status.textContent = '✅ 完成'; prog.style.display = 'none';
+            let rhtml = '<div class="card" style="border:1px solid #22c55e;background:rgba(34,197,94,0.08);padding:12px"><strong>✅ 下载完成</strong><br>';
+            if (ev.files && ev.files.length) { rhtml += '<ul style="margin:8px 0 0;padding-left:20px;font-size:13px">'; ev.files.forEach(f => rhtml += '<li>' + f + '</li>'); rhtml += '</ul>'; }
+            rhtml += '<div style="font-size:12px;color:var(--text-dim);margin-top:6px">保存到: ' + ev.save_dir + '</div></div>';
+            result.innerHTML = rhtml; result.style.display = 'block';
           } else if (ev.type === 'error') {
             prog.style.display = 'none';
             result.innerHTML = '<div class="card" style="border:1px solid #dc2626;background:rgba(220,38,38,0.08);padding:12px">❌ ' + ev.message + '</div>';
@@ -1504,6 +1597,75 @@ async function startDownload() {
 </script>
 """
     return page("下载", "/download", body)
+
+
+@app.post("/api/download/probe")
+async def api_download_probe(request: Request):
+    """Probe a URL with yt-dlp --dump-json to detect video/audio/subtitle availability."""
+    data = await request.json()
+    url = data.get("url", "").strip()
+    if not url:
+        return JSONResponse({"error": "URL required"}, status_code=400)
+
+    cmd = _ytdlp_base_cmd() + [
+        "--dump-json", "--no-playlist", "--skip-download",
+        "--quiet", url,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+    except asyncio.TimeoutError:
+        return JSONResponse({"error": "探测超时（20s），可直接尝试下载"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+    raw_stdout = stdout.decode("utf-8", errors="replace").strip()
+
+    if proc.returncode != 0:
+        # Check if we still got valid JSON output despite non-zero exit
+        # (yt-dlp sometimes exits non-zero on cookie warnings but still dumps info)
+        if not raw_stdout or not raw_stdout.startswith("{"):
+            err = stderr.decode("utf-8", errors="replace").strip()
+            for line in err.splitlines():
+                if "ERROR" in line:
+                    err = line
+                    break
+            return JSONResponse({"error": err[:200] if err else "探测失败"})
+
+    try:
+        info = json.loads(raw_stdout)
+    except Exception:
+        return JSONResponse({"error": "无法解析探测结果"})
+
+    # Detect video stream (any format with vcodec not 'none')
+    formats = info.get("formats", [])
+    has_video = any(
+        f.get("vcodec", "none") not in ("none", None) for f in formats
+    ) if formats else bool(info.get("vcodec") and info.get("vcodec") != "none")
+
+    # Detect subtitles (automatic or manual)
+    subs = info.get("subtitles", {})
+    auto_subs = info.get("automatic_captions", {})
+    has_subs = bool(subs) or bool(auto_subs)
+
+    # Playlist detection
+    is_playlist = info.get("_type") == "playlist" or bool(info.get("playlist_id"))
+
+    return JSONResponse({
+        "title":       info.get("title", ""),
+        "uploader":    info.get("uploader", info.get("channel", "")),
+        "duration":    info.get("duration"),
+        "thumbnail":   info.get("thumbnail", ""),
+        "has_video":   has_video,
+        "has_audio":   True,   # virtually all sources have audio
+        "has_subs":    has_subs,
+        "is_playlist": is_playlist,
+        "sub_langs":   list(subs.keys())[:10],
+    })
 
 
 @app.post("/api/download")
