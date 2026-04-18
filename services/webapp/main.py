@@ -367,7 +367,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
 </head>
 <body>
 <header>
-  <h1>{APP_NAME}</h1>
+  <h1><a href="/" style="text-decoration:none;color:inherit">{APP_NAME}</a></h1>
   <nav>{nav_html}</nav>
 </header>
 
