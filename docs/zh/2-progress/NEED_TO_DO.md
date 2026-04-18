@@ -53,3 +53,11 @@
   - 递归目录扫描（最深3层/300条），超出时显示手动路径输入框
   - commit: `feat: redesign /download as 3-section smart page with URL probe`
   - commit: `feat: recursive dir scan with depth control + manual path input fallback`
+
+
+- [ ] ComfyUI 工作流 #5 数字人报错 ✅ 已修复（2026-04-18）：工作流 JSON 参数名与插件不符，`src_image`→`src_images`，`motion_images`→`driving_images`。直接修改 JSON 文件修复。
+
+- [ ] http://192.168.0.19:8888/download 当前“保存到”的目录没有进行任何折叠，所有全部一次性显示，太多了
+请先显示lv1，顶层目录，我要哪一个点击进去，你显示lv2，如此的逻辑持续往下即可。
+做完归档这里的items
+更新pkb和repo docs
