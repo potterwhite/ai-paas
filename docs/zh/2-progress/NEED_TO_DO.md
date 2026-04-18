@@ -48,7 +48,8 @@
 - [ ] 下载有问题 ✅ 已修复：下载完成检测逻辑（`api_download`）只列新增文件，不再误报已有文件；TrueNAS NFS Maproot User=root 修复目录写权限（tv/movies/music/files 不再显示🔒）。详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-15.md`。
 
 - [ ] 扩充 /download 页面功能 ✅ 已完成（2026-04-18）：
-  - 支持任意 URL 视频平台（yt-dlp 1000+ 站点）
-  - 3 个 Tab：视频（格式/分辨率/字幕选项）/ 仅音频（mp3/m4a/flac/opus/wav）/ 仅字幕（语言选择）
-  - 播放列表 checkbox 支持批量下载
-  - commit: `feat: expand /download to multi-platform, multi-type with format selection`
+  - 3区域合并页面（视频/音频/字幕各独立区域，可折叠/启用，一次下载可组合任意组合）
+  - URL 探测（yt-dlp --dump-json）：自动检测是否有视频流/字幕，无字幕时提示 AI 生成
+  - 递归目录扫描（最深3层/300条），超出时显示手动路径输入框
+  - commit: `feat: redesign /download as 3-section smart page with URL probe`
+  - commit: `feat: recursive dir scan with depth control + manual path input fallback`
