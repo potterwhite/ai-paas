@@ -46,7 +46,7 @@
       "pos": [430, 240],
       "size": [400, 300],
       "inputs": [
-        {"name": "src_image",  "type": "IMAGE", "link": 1},
+        {"name": "src_images",  "type": "IMAGE", "link": 1},
         {"name": "motion_images", "type": "IMAGE", "link": 2}
       ],
       "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [3]}],
