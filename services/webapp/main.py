@@ -1500,11 +1500,7 @@ function _renderTree() {
       const icon = document.createElement('span');
       icon.style.marginRight = '4px';
       icon.style.fontSize = '14px';
-      if (hasKids) {
-        icon.textContent = isOpen ? '📂 ' : '📁 ';
-      } else {
-        icon.textContent = '📋 ';
-      }
+      icon.textContent = hasKids ? (isOpen ? '📂 ' : '📁 ') : '📁 ';
       const name = document.createElement('span');
       name.textContent = child.path.split('/').pop() + (child.writable ? '' : ' 🔒');
       if (!child.writable) name.style.color = '#999';
@@ -1553,11 +1549,7 @@ function _renderTree() {
     const icon = document.createElement('span');
     icon.style.marginRight = '4px';
     icon.style.fontSize = '14px';
-    if (hasKids) {
-      icon.textContent = isOpen ? '📂 ' : '📁 ';
-    } else {
-      icon.textContent = '📋 ';
-    }
+    icon.textContent = hasKids ? (isOpen ? '📂 ' : '📁 ') : '📁 ';
     const name = document.createElement('span');
     name.textContent = d.path.split('/').pop() + (d.writable ? '' : ' 🔒');
     if (!d.writable) name.style.color = '#999';
