@@ -1333,7 +1333,7 @@ async def download_page():
   <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin-top:8px;margin-bottom:4px">
     <div class="form-group" style="margin:0">
       <label>保存到</label>
-      <select id="dl-dir"><option value="">加载中...</option></select>
+      <div id="dl-dir-tree" style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg);font-size:13px;line-height:1.6"></div>
     </div>
     <label style="font-size:12px;cursor:pointer;white-space:nowrap;padding-bottom:6px">
       <input type="checkbox" id="dl-playlist"> 下载整个播放列表
@@ -1459,9 +1459,132 @@ function _fmtDuration(s) {
   return m + ':' + String(sec).padStart(2,'0');
 }
 
-// ── Media dirs ───────────────────────────────────────────────────────────────
+// ── Media dirs (tree view) ─────────────────────────────────────────────────
+let _dirs = [];
+let _selectedDir = '';
+let _expandedDirs = new Set();
+
+function _getChildren(parent) {
+  return _dirs.filter(d => d.depth === (parent ? parent.split('/').length : 0) && (parent ? d.path.startsWith(parent + '/') : d.depth === 0));
+}
+
+function _hasChildren(path) {
+  return _dirs.some(d => d.path.startsWith(path + '/'));
+}
+
+function _renderTree() {
+  const tree = document.getElementById('dl-dir-tree');
+  if (!tree) return;
+  tree.innerHTML = '';
+
+  function renderDir(path, depth) {
+    const kids = _getChildren(path);
+    if (!kids.length) return;
+    kids.sort((a, b) => a.path.localeCompare(b.path));
+    kids.forEach(child => {
+      const hasKids = _hasChildren(child.path);
+      const isOpen = _expandedDirs.has(child.path);
+      const isSelected = _selectedDir === child.path;
+
+      const div = document.createElement('div');
+      div.style.paddingLeft = (depth * 16) + 'px';
+      div.style.cursor = 'pointer';
+      div.style.borderRadius = '4px';
+      if (isSelected) {
+        div.style.background = 'var(--accent)';
+        div.style.color = 'white';
+      }
+      div.dataset.path = child.path;
+      div.dataset.hasChildren = hasKids;
+
+      const icon = document.createElement('span');
+      icon.style.marginRight = '4px';
+      icon.style.fontSize = '14px';
+      if (hasKids) {
+        icon.textContent = isOpen ? '📂 ' : '📁 ';
+      } else {
+        icon.textContent = '📋 ';
+      }
+      const name = document.createElement('span');
+      name.textContent = child.path.split('/').pop() + (child.writable ? '' : ' 🔒');
+      if (!child.writable) name.style.color = '#999';
+
+      div.appendChild(icon);
+      div.appendChild(name);
+      tree.appendChild(div);
+
+      if (hasKids && isOpen) {
+        renderDir(child.path, depth + 1);
+      }
+    });
+  }
+
+  // Root with "/"
+  const rootDiv = document.createElement('div');
+  rootDiv.style.paddingLeft = '0px';
+  rootDiv.style.cursor = 'pointer';
+  rootDiv.style.borderRadius = '4px';
+  rootDiv.style.fontWeight = '600';
+  if (_selectedDir === '.') {
+    rootDiv.style.background = 'var(--accent)';
+    rootDiv.style.color = 'white';
+  }
+  rootDiv.dataset.path = '.';
+  rootDiv.innerHTML = '<span style="margin-right:4px;font-size:14px">📂</span>/ (根目录)';
+  tree.appendChild(rootDiv);
+
+  // Level 0 dirs - show as top level, NOT expanded initially
+  _dirs.filter(d => d.depth === 0).sort((a, b) => a.path.localeCompare(b.path)).forEach(d => {
+    const hasKids = _hasChildren(d.path);
+    const isOpen = _expandedDirs.has(d.path);
+    const isSelected = _selectedDir === d.path;
+
+    const div = document.createElement('div');
+    div.style.paddingLeft = '0px';
+    div.style.cursor = 'pointer';
+    div.style.borderRadius = '4px';
+    if (isSelected) {
+      div.style.background = 'var(--accent)';
+      div.style.color = 'white';
+    }
+    div.dataset.path = d.path;
+    div.dataset.hasChildren = hasKids;
+
+    const icon = document.createElement('span');
+    icon.style.marginRight = '4px';
+    icon.style.fontSize = '14px';
+    if (hasKids) {
+      icon.textContent = isOpen ? '📂 ' : '📁 ';
+    } else {
+      icon.textContent = '📋 ';
+    }
+    const name = document.createElement('span');
+    name.textContent = d.path.split('/').pop() + (d.writable ? '' : ' 🔒');
+    if (!d.writable) name.style.color = '#999';
+
+    div.appendChild(icon);
+    div.appendChild(name);
+    tree.appendChild(div);
+
+    // Only expand if explicitly expanded
+    if (hasKids && isOpen) {
+      renderDir(d.path, 1);
+    }
+  });
+}
+
+function _toggleDir(path) {
+  if (path === '.' || !path) {
+    _selectedDir = path;
+  } else if (_expandedDirs.has(path)) {
+    _expandedDirs.delete(path);
+  } else {
+    _expandedDirs.add(path);
+  }
+  _renderTree();
+}
+
 fetch('/api/media-dirs').then(r => r.json()).then(d => {
-  const sel = document.getElementById('dl-dir');
   const alert = document.getElementById('dl-media-alert');
   if (!d.configured) {
     alert.style.display = 'block';
@@ -1473,22 +1596,27 @@ fetch('/api/media-dirs').then(r => r.json()).then(d => {
     alert.style.display = 'block';
     alert.innerHTML = '<div class="card" style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px">⚠️ 媒体目录不可写。</div>';
   }
-  sel.innerHTML = '';
-  const rootOpt = document.createElement('option');
-  rootOpt.value = '.'; rootOpt.textContent = '📂 / (根目录)';
-  sel.appendChild(rootOpt);
-  d.dirs.forEach(item => {
-    const opt = document.createElement('option');
-    opt.value = item.path;
-    const lock = item.writable ? '' : ' 🔒';
-    const indent = '\\u00a0\\u00a0\\u00a0\\u00a0'.repeat(item.depth);
-    const icon = item.depth === 0 ? '📁 ' : '└─ ';
-    opt.textContent = indent + icon + item.path.split('/').pop() + lock;
-    if (item.depth === 0) opt.style.fontWeight = '600';
-    if (!item.writable) opt.style.color = '#999';
-    sel.appendChild(opt);
-  });
-  // Truncated hint + manual input
+  _dirs = d.dirs || [];
+  _selectedDir = '.';
+  _renderTree();
+
+  const tree = document.getElementById('dl-dir-tree');
+  if (tree) {
+    tree.addEventListener('click', function(e) {
+      const div = e.target.closest('div[data-path]');
+      if (div) {
+        const path = div.dataset.path;
+        const hasChildren = div.dataset.hasChildren === 'true';
+        if (hasChildren) {
+          _toggleDir(path);
+        } else {
+          _selectedDir = path;
+          _renderTree();
+        }
+      }
+    });
+  }
+
   const hint = document.getElementById('dl-dir-hint');
   const customWrap = document.getElementById('dl-dir-custom-wrap');
   const spacer = document.getElementById('dl-dir-spacer');
@@ -1572,7 +1700,7 @@ async function startDownload() {
       write_subs:    document.getElementById('dl-write-subs').checked,
       ai_transcribe: document.getElementById('dl-transcribe').checked,
       playlist:      document.getElementById('dl-playlist').checked,
-      save_dir:      (document.getElementById('dl-dir-custom').value.trim() || document.getElementById('dl-dir').value),
+      save_dir:      (document.getElementById('dl-dir-custom').value.trim() || _selectedDir),
     };
 
     const resp = await fetch('/api/download', {
