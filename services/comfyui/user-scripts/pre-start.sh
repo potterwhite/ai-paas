@@ -60,7 +60,7 @@ fi
 echo "[pre-start] Syncing workflow default images to ComfyUI input dir..."
 INPUT_DIR="/root/ComfyUI/input"
 mkdir -p "$INPUT_DIR"
-for img in "$WF_SRC"/*.png "$WF_SRC"/*.jpg "$WF_SRC"/*.jpeg "$WF_SRC"/*.webp; do
+for img in "$WF_SRC"/*.png "$WF_SRC"/*.jpg "$WF_SRC"/*.jpeg "$WF_SRC"/*.webp "$WF_SRC"/*.mp4; do
     [ -f "$img" ] && cp -f "$img" "$INPUT_DIR/" 2>/dev/null || true
 done
-echo "[pre-start] Default images synced."
+echo "[pre-start] Default images + videos synced."

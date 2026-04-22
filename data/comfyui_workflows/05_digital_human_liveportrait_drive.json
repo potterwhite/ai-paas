@@ -13,7 +13,7 @@
         {"name": "MASK",  "type": "MASK",  "links": []}
       ],
       "properties": {},
-      "widgets_values": ["portrait.png", "image"],
+      "widgets_values": ["default_liveportrait_portrait.png", "image"],
       "color": "#232",
       "bgcolor": "#353"
     },
@@ -31,7 +31,7 @@
       ],
       "properties": {},
       "widgets_values": {
-        "video": "driving_video.mp4",
+        "video": "default_liveportrait_driving.mp4",
         "force_rate": 0,
         "custom_width": 0,
         "custom_height": 0,
