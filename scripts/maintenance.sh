@@ -88,7 +88,8 @@ Commands:
     status           Show running containers and their health
     start            Start all ai-paas services (uses docker-compose up -d)
     stop             Stop all ai-paas services
-    restart          Stop and start all services
+    restart          Stop and start default services (no-profile services only)
+    restart-all      Stop and start ALL services including comfyui, cookies profiles
 
   Logs & Monitoring:
     logs [container] Show logs for a container or all containers

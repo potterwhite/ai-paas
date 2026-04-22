@@ -57,6 +57,9 @@ main() {
         restart)
             restart_services
             ;;
+        restart-all)
+            restart_all_services
+            ;;
         clean-data)
             clean_data
             ;;
