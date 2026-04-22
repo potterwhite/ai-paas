@@ -71,20 +71,31 @@ restart_services() {
     start_services
 }
 
-# Restart ALL services including profile-gated ones (comfyui, cookies, etc.)
-restart_all_services() {
-    log_info "Stopping all ai-paas services (including profile services)..."
+# Stop ALL services including profile-gated ones (comfyui, cookies, etc.)
+stop_all_services() {
+    log_info "Stopping ALL ai-paas services (including profile services)..."
     cd "${SCRIPT_DIR}"
     docker compose -f "${DOCKER_COMPOSE_FILE}" \
         --profile comfyui \
         --profile cookies \
         down
     log_info "All services stopped."
-    sleep 2
-    log_info "Starting all ai-paas services (including profile services)..."
+}
+
+# Start ALL services including profile-gated ones (comfyui, cookies, etc.)
+start_all_services() {
+    log_info "Starting ALL ai-paas services (including profile services)..."
+    cd "${SCRIPT_DIR}"
     docker compose -f "${DOCKER_COMPOSE_FILE}" \
         --profile comfyui \
         --profile cookies \
         up -d
     log_info "All services started."
+}
+
+# Restart ALL services including profile-gated ones (comfyui, cookies, etc.)
+restart_all_services() {
+    stop_all_services
+    sleep 2
+    start_all_services
 }

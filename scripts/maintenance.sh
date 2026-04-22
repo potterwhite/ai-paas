@@ -86,8 +86,10 @@ Commands:
 
   Service Management:
     status           Show running containers and their health
-    start            Start all ai-paas services (uses docker-compose up -d)
-    stop             Stop all ai-paas services
+    start            Start default services (no-profile: webapp/router/whisper etc)
+    start-all        Start ALL services including comfyui, cookies profiles
+    stop             Stop default services
+    stop-all         Stop ALL services including comfyui, cookies profiles
     restart          Stop and start default services (no-profile services only)
     restart-all      Stop and start ALL services including comfyui, cookies profiles
 

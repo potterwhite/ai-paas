@@ -51,8 +51,14 @@ main() {
         start)
             start_services
             ;;
+        start-all)
+            start_all_services
+            ;;
         stop)
             stop_services
+            ;;
+        stop-all)
+            stop_all_services
             ;;
         restart)
             restart_services
