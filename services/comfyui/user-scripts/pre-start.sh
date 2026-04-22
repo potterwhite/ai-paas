@@ -56,3 +56,11 @@ if [ -d "$WF_SRC" ] && ls "$WF_SRC"/*.json >/dev/null 2>&1; then
     done
     echo "[pre-start] Workflows synced."
 fi
+
+echo "[pre-start] Syncing workflow default images to ComfyUI input dir..."
+INPUT_DIR="/root/ComfyUI/input"
+mkdir -p "$INPUT_DIR"
+for img in "$WF_SRC"/*.png "$WF_SRC"/*.jpg "$WF_SRC"/*.jpeg "$WF_SRC"/*.webp; do
+    [ -f "$img" ] && cp -f "$img" "$INPUT_DIR/" 2>/dev/null || true
+done
+echo "[pre-start] Default images synced."

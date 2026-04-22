@@ -6,6 +6,8 @@ data/
 # Exception: pre-bundled ComfyUI workflows are git-tracked config, not runtime data
 !data/comfyui_workflows/
 !data/comfyui_workflows/*.json
+!data/comfyui_workflows/*.png
+!data/comfyui_workflows/*.jpg
 !data/comfyui_extra_model_paths.yaml
 
 # Python cache

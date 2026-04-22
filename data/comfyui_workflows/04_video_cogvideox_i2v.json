@@ -1,6 +1,6 @@
 {
-  "last_node_id": 11,
-  "last_link_id": 13,
+  "last_node_id": 13,
+  "last_link_id": 15,
   "nodes": [
     {
       "id": 1,
@@ -32,11 +32,27 @@
       "size": [315, 314],
       "inputs": [],
       "outputs": [
-        {"name": "IMAGE", "type": "IMAGE", "links": [11]},
+        {"name": "IMAGE", "type": "IMAGE", "links": [13]},
         {"name": "MASK", "type": "MASK", "links": []}
       ],
       "properties": {"Node name for S&R": "LoadImage"},
-      "widgets_values": ["input_image.png", "image"]
+      "widgets_values": ["default_i2v_720x480.png", "image"]
+    },
+    {
+      "id": 12,
+      "type": "ImageResizeKJ",
+      "pos": [400, 500],
+      "size": [340, 180],
+      "inputs": [
+        {"name": "image", "type": "IMAGE", "link": 13}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [14]},
+        {"name": "width", "type": "INT", "links": []},
+        {"name": "height", "type": "INT", "links": []}
+      ],
+      "properties": {"Node name for S&R": "ImageResizeKJ"},
+      "widgets_values": [720, 480, "lanczos", false, 0, false, false, "disabled"]
     },
     {
       "id": 4,
@@ -69,11 +85,11 @@
     {
       "id": 11,
       "type": "CogVideoImageEncode",
-      "pos": [460, 420],
+      "pos": [780, 460],
       "size": [340, 100],
       "inputs": [
         {"name": "vae", "type": "VAE", "link": 2},
-        {"name": "start_image", "type": "IMAGE", "link": 11}
+        {"name": "start_image", "type": "IMAGE", "link": 14}
       ],
       "outputs": [{"name": "samples", "type": "LATENT", "links": [12]}],
       "properties": {"Node name for S&R": "CogVideoImageEncode"},
@@ -82,7 +98,7 @@
     {
       "id": 7,
       "type": "CogVideoSampler",
-      "pos": [970, 200],
+      "pos": [1170, 200],
       "size": [340, 220],
       "inputs": [
         {"name": "model", "type": "COGVIDEOMODEL", "link": 1},
@@ -97,7 +113,7 @@
     {
       "id": 8,
       "type": "CogVideoDecode",
-      "pos": [1380, 200],
+      "pos": [1580, 200],
       "size": [315, 140],
       "inputs": [
         {"name": "vae", "type": "VAE", "link": 3},
@@ -110,7 +126,7 @@
     {
       "id": 9,
       "type": "VHS_VideoCombine",
-      "pos": [1760, 200],
+      "pos": [1960, 200],
       "size": [340, 240],
       "inputs": [{"name": "images", "type": "IMAGE", "link": 10}],
       "outputs": [],
@@ -138,8 +154,9 @@
     [7, 5, 0, 7, 2, "CONDITIONING"],
     [9, 7, 0, 8, 1, "LATENT"],
     [10, 8, 0, 9, 0, "IMAGE"],
-    [11, 10, 0, 11, 1, "IMAGE"],
-    [12, 11, 0, 7, 3, "LATENT"]
+    [12, 11, 0, 7, 3, "LATENT"],
+    [13, 10, 0, 12, 0, "IMAGE"],
+    [14, 12, 0, 11, 1, "IMAGE"]
   ],
   "groups": [],
   "config": {},
@@ -147,9 +164,9 @@
     "ds": {"scale": 0.5, "offset": [0, 0]},
     "info": {
       "name": "CogVideoX-5B I2V - 3090 Safe Default",
-      "description": "Safe & stable configuration for single RTX 3090. 49 frames (~6s), 40 steps, bf16, no quantization. Put your image as input_image.png in ComfyUI/input folder.",
+      "description": "Safe & stable configuration for single RTX 3090. 49 frames (~6s), 40 steps, bf16, no quantization. Image is auto-resized to 720x480 (required by CogVideoX-5b-I2V). Default image included - just click Run.",
       "vram_required": "~18-22 GB (safe on 3090)",
-      "note": "Conservative settings for daily default use, no OOM risk"
+      "note": "Conservative settings for daily default use, no OOM risk. Replace LoadImage with your own image to animate it."
     }
   },
   "version": 0.4
