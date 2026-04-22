@@ -40,19 +40,17 @@
     },
     {
       "id": 12,
-      "type": "ImageResizeKJ",
+      "type": "ImageScale",
       "pos": [400, 500],
-      "size": [340, 180],
+      "size": [315, 130],
       "inputs": [
         {"name": "image", "type": "IMAGE", "link": 13}
       ],
       "outputs": [
-        {"name": "IMAGE", "type": "IMAGE", "links": [14]},
-        {"name": "width", "type": "INT", "links": []},
-        {"name": "height", "type": "INT", "links": []}
+        {"name": "IMAGE", "type": "IMAGE", "links": [14]}
       ],
-      "properties": {"Node name for S&R": "ImageResizeKJ"},
-      "widgets_values": [720, 480, "lanczos", false, 0, false, false, "disabled"]
+      "properties": {"Node name for S&R": "ImageScale"},
+      "widgets_values": ["lanczos", 720, 480, "disabled"]
     },
     {
       "id": 4,
