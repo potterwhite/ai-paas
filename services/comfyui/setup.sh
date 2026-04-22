@@ -297,6 +297,7 @@ dl "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.s
 
 step_header 6 "$TOTAL_STEPS" "Workflow sync — copy to ComfyUI Browse UI"
 echo "  Copying built-in workflows so they appear in ComfyUI's sidebar."
+echo "  NOTE: Always overwrites to ensure latest changes are visible."
 echo ""
 
 WF_SRC="/root/ComfyUI/workflows"
@@ -305,7 +306,7 @@ if [ -d "$WF_SRC" ] && ls "$WF_SRC"/*.json >/dev/null 2>&1; then
     mkdir -p "$WF_DST"
     wf_count=0
     for wf in "$WF_SRC"/*.json; do
-        cp -u "$wf" "$WF_DST/" 2>/dev/null || true
+        cp -f "$wf" "$WF_DST/" 2>/dev/null || true
         wf_count=$((wf_count + 1))
     done
     echo "  [done] Synced ${wf_count} workflows to ComfyUI Browse UI"
