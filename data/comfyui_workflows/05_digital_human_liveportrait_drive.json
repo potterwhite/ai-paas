@@ -47,7 +47,7 @@
       "size": [400, 300],
       "inputs": [
         {"name": "src_images",  "type": "IMAGE", "link": 1},
-        {"name": "motion_images", "type": "IMAGE", "link": 2}
+        {"name": "driving_images", "type": "IMAGE", "link": 2}
       ],
       "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [3]}],
       "properties": {},
