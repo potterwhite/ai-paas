@@ -45,19 +45,6 @@
 （2026-04-13 CogVideoX latent_rgb_factors_reshape 修复已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
 
 
-- [ ] 下载有问题 ✅ 已修复：下载完成检测逻辑（`api_download`）只列新增文件，不再误报已有文件；TrueNAS NFS Maproot User=root 修复目录写权限（tv/movies/music/files 不再显示🔒）。详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-15.md`。
+- [ ] http://192.168.0.19:8888/download 目录选择器懒加载：先显示lv1顶层目录，点击展开再显示子目录。当前一次性全扫300条cap导致tv等目录被截断消失。
 
-- [ ] 扩充 /download 页面功能 ✅ 已完成（2026-04-18）：
-  - 3区域合并页面（视频/音频/字幕各独立区域，可折叠/启用，一次下载可组合任意组合）
-  - URL 探测（yt-dlp --dump-json）：自动检测是否有视频流/字幕，无字幕时提示 AI 生成
-  - 递归目录扫描（最深3层/300条），超出时显示手动路径输入框
-  - commit: `feat: redesign /download as 3-section smart page with URL probe`
-  - commit: `feat: recursive dir scan with depth control + manual path input fallback`
-
-
-- [ ] ComfyUI 工作流 #5 数字人报错 ✅ 已修复（2026-04-18）：工作流 JSON 参数名与插件不符，`src_image`→`src_images`，`motion_images`→`driving_images`。直接修改 JSON 文件修复。
-
-- [ ] http://192.168.0.19:8888/download 当前“保存到”的目录没有进行任何折叠，所有全部一次性显示，太多了
-请先显示lv1，顶层目录，我要哪一个点击进去，你显示lv2，如此的逻辑持续往下即可。
-做完归档这里的items
-更新pkb和repo docs
+- [ ] CogVideoX I2V workflow AssertionError: Image condition latents required for I2V models（进行中修复中）

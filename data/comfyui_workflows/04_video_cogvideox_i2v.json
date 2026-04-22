@@ -89,7 +89,7 @@
         {"name": "vae", "type": "VAE", "link": 2},
         {"name": "start_image", "type": "IMAGE", "link": 14}
       ],
-      "outputs": [{"name": "samples", "type": "LATENT", "links": [12]}],
+      "outputs": [{"name": "image_cond_latents", "type": "LATENT", "links": [12]}],
       "properties": {"Node name for S&R": "CogVideoImageEncode"},
       "widgets_values": [false, 0.0]
     },
@@ -102,7 +102,7 @@
         {"name": "model", "type": "COGVIDEOMODEL", "link": 1},
         {"name": "positive", "type": "CONDITIONING", "link": 6},
         {"name": "negative", "type": "CONDITIONING", "link": 7},
-        {"name": "samples", "type": "LATENT", "link": 12}
+        {"name": "image_cond_latents", "type": "LATENT", "link": 12}
       ],
       "outputs": [{"name": "samples", "type": "LATENT", "links": [9]}],
       "properties": {"Node name for S&R": "CogVideoSampler"},
