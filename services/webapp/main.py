@@ -908,34 +908,45 @@ async def cookie_refresh_proxy():
 
 
 @app.get("/api/media-dirs")
-async def media_dirs(max_depth: int = 3, max_dirs: int = 300):
-    """Recursively scan MEDIA_ROOT up to max_depth levels (default 3, cap 300 dirs)."""
+async def media_dirs(parent: str = ""):
+    """Return direct children of `parent` (relative to MEDIA_ROOT). Lazy-load one level at a time."""
     if not MEDIA_ROOT or not Path(MEDIA_ROOT).is_dir():
         return JSONResponse({"configured": False, "dirs": []})
 
     root = Path(MEDIA_ROOT)
-    dirs: list[dict] = []
-
-    def _scan(path: Path, depth: int, rel_prefix: str) -> None:
-        if depth > max_depth or len(dirs) >= max_dirs:
-            return
+    # Security: reject path traversal in parent parameter
+    if parent:
         try:
-            children = sorted(path.iterdir())
-        except PermissionError:
-            return
-        for child in children:
-            if len(dirs) >= max_dirs:
-                break
-            if not child.is_dir() or child.name.startswith("."):
-                continue
-            rel = f"{rel_prefix}/{child.name}" if rel_prefix else child.name
-            dirs.append({"path": rel, "writable": os.access(child, os.W_OK), "depth": depth})
-            _scan(child, depth + 1, rel)
+            target = (root / parent).resolve()
+            target.relative_to(root.resolve())
+        except (ValueError, Exception):
+            return JSONResponse({"error": "Invalid parent path"}, status_code=400)
+    else:
+        target = root
 
-    _scan(root, 0, "")
-    writable = os.access(MEDIA_ROOT, os.W_OK)
-    truncated = len(dirs) >= max_dirs
-    return JSONResponse({"configured": True, "writable": writable, "dirs": dirs, "truncated": truncated})
+    dirs: list[dict] = []
+    try:
+        children = sorted(target.iterdir())
+    except PermissionError:
+        children = []
+
+    for child in children:
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        rel = f"{parent}/{child.name}" if parent else child.name
+        # Check if this dir has any subdirectories (for expand arrow)
+        try:
+            has_children = any(c.is_dir() and not c.name.startswith(".") for c in child.iterdir())
+        except PermissionError:
+            has_children = False
+        dirs.append({
+            "path": rel,
+            "writable": os.access(child, os.W_OK),
+            "has_children": has_children,
+        })
+
+    root_writable = os.access(MEDIA_ROOT, os.W_OK)
+    return JSONResponse({"configured": True, "writable": root_writable, "dirs": dirs})
 
 
 # ── /  (Home) ────────────────────────────────────────────────────────────────
@@ -1459,17 +1470,22 @@ function _fmtDuration(s) {
   return m + ':' + String(sec).padStart(2,'0');
 }
 
-// ── Media dirs (tree view) ─────────────────────────────────────────────────
-let _dirs = [];
+// ── Media dirs (lazy-load tree) ────────────────────────────────────────────
+// Cache: parent path → [{path, writable, has_children}]
+let _dirCache = {};          // "" = root children, "Movies" = Movies/ children …
 let _selectedDir = '';
 let _expandedDirs = new Set();
+let _loadingDirs = new Set();
 
-function _getChildren(parent) {
-  return _dirs.filter(d => d.depth === (parent ? parent.split('/').length : 0) && (parent ? d.path.startsWith(parent + '/') : d.depth === 0));
-}
-
-function _hasChildren(path) {
-  return _dirs.some(d => d.path.startsWith(path + '/'));
+// Fetch one level from API; returns promise resolving to children array
+function _fetchDir(parent) {
+  const key = parent || '';
+  if (_dirCache[key] !== undefined) return Promise.resolve(_dirCache[key]);
+  const url = '/api/media-dirs' + (parent ? '?parent=' + encodeURIComponent(parent) : '');
+  return fetch(url).then(r => r.json()).then(d => {
+    _dirCache[key] = d.dirs || [];
+    return _dirCache[key];
+  });
 }
 
 function _renderTree() {
@@ -1477,118 +1493,89 @@ function _renderTree() {
   if (!tree) return;
   tree.innerHTML = '';
 
-  function renderDir(path, depth) {
-    const kids = _getChildren(path);
-    if (!kids.length) return;
-    kids.sort((a, b) => a.path.localeCompare(b.path));
-    kids.forEach(child => {
-      const hasKids = _hasChildren(child.path);
-      const isOpen = _expandedDirs.has(child.path);
-      const isSelected = _selectedDir === child.path;
-
-      const div = document.createElement('div');
-      div.style.paddingLeft = (depth * 16) + 'px';
-      div.style.cursor = 'pointer';
-      div.style.borderRadius = '4px';
-      if (isSelected) {
-        div.style.background = 'var(--accent)';
-        div.style.color = 'white';
-      }
-      div.dataset.path = child.path;
-      div.dataset.hasChildren = hasKids;
-
-      const icon = document.createElement('span');
-      icon.style.marginRight = '4px';
-      icon.style.fontSize = '14px';
-      icon.textContent = hasKids ? (isOpen ? '📂 ' : '📁 ') : '📁 ';
-      const name = document.createElement('span');
-      name.textContent = child.path.split('/').pop() + (child.writable ? '' : ' 🔒');
-      if (!child.writable) name.style.color = '#999';
-
-      div.appendChild(icon);
-      div.appendChild(name);
-      tree.appendChild(div);
-
-      if (hasKids && isOpen) {
-        renderDir(child.path, depth + 1);
-      }
-    });
-  }
-
-  // Root with "/"
+  // Root row
   const rootDiv = document.createElement('div');
-  rootDiv.style.paddingLeft = '0px';
-  rootDiv.style.cursor = 'pointer';
-  rootDiv.style.borderRadius = '4px';
-  rootDiv.style.fontWeight = '600';
-  if (_selectedDir === '.') {
-    rootDiv.style.background = 'var(--accent)';
-    rootDiv.style.color = 'white';
-  }
+  rootDiv.style.cssText = 'padding-left:0;cursor:pointer;border-radius:4px;font-weight:600';
+  if (_selectedDir === '.') { rootDiv.style.background = 'var(--accent)'; rootDiv.style.color = 'white'; }
   rootDiv.dataset.path = '.';
   rootDiv.innerHTML = '<span style="margin-right:4px;font-size:14px">📂</span>/ (根目录)';
   tree.appendChild(rootDiv);
 
-  // Level 0 dirs - show as top level, NOT expanded initially
-  _dirs.filter(d => d.depth === 0).sort((a, b) => a.path.localeCompare(b.path)).forEach(d => {
-    const hasKids = _hasChildren(d.path);
-    const isOpen = _expandedDirs.has(d.path);
-    const isSelected = _selectedDir === d.path;
+  // Recursively render already-loaded levels
+  function renderLevel(parent, depth) {
+    const key = parent || '';
+    const kids = _dirCache[key];
+    if (!kids) return;
+    kids.slice().sort((a, b) => a.path.localeCompare(b.path)).forEach(d => {
+      const isOpen = _expandedDirs.has(d.path);
+      const isSelected = _selectedDir === d.path;
+      const isLoading = _loadingDirs.has(d.path);
 
-    const div = document.createElement('div');
-    div.style.paddingLeft = '0px';
-    div.style.cursor = 'pointer';
-    div.style.borderRadius = '4px';
-    if (isSelected) {
-      div.style.background = 'var(--accent)';
-      div.style.color = 'white';
-    }
-    div.dataset.path = d.path;
-    div.dataset.hasChildren = hasKids;
+      const div = document.createElement('div');
+      div.style.cssText = `padding-left:${depth * 16}px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:4px`;
+      if (isSelected) { div.style.background = 'var(--accent)'; div.style.color = 'white'; }
+      div.dataset.path = d.path;
+      div.dataset.hasChildren = d.has_children;
 
-    const icon = document.createElement('span');
-    icon.style.marginRight = '4px';
-    icon.style.fontSize = '14px';
-    icon.textContent = hasKids ? (isOpen ? '📂 ' : '📁 ') : '📁 ';
-    const name = document.createElement('span');
-    name.textContent = d.path.split('/').pop() + (d.writable ? '' : ' 🔒');
-    if (!d.writable) name.style.color = '#999';
+      const arrow = document.createElement('span');
+      arrow.style.cssText = 'font-size:10px;width:12px;display:inline-block;flex-shrink:0;color:var(--text-dim)';
+      if (isLoading) arrow.textContent = '…';
+      else if (d.has_children) arrow.textContent = isOpen ? '▼' : '▶';
+      else arrow.textContent = '';
 
-    div.appendChild(icon);
-    div.appendChild(name);
-    tree.appendChild(div);
+      const icon = document.createElement('span');
+      icon.style.cssText = 'font-size:14px;flex-shrink:0';
+      icon.textContent = (d.has_children && isOpen) ? '📂' : '📁';
 
-    // Only expand if explicitly expanded
-    if (hasKids && isOpen) {
-      renderDir(d.path, 1);
-    }
-  });
+      const name = document.createElement('span');
+      name.textContent = ' ' + d.path.split('/').pop() + (d.writable ? '' : ' 🔒');
+      if (!d.writable) name.style.color = isSelected ? 'rgba(255,255,255,0.7)' : '#999';
+
+      div.appendChild(arrow);
+      div.appendChild(icon);
+      div.appendChild(name);
+      tree.appendChild(div);
+
+      if (d.has_children && isOpen) {
+        renderLevel(d.path, depth + 1);
+      }
+    });
+  }
+  renderLevel('', 1);
 }
 
 function _toggleDir(path) {
-  if (path === '.' || !path) {
-    _selectedDir = path;
-  } else if (_expandedDirs.has(path)) {
+  if (_expandedDirs.has(path)) {
+    // Collapse: remove from expanded
     _expandedDirs.delete(path);
+    _renderTree();
   } else {
-    _expandedDirs.add(path);
+    // Expand: fetch children if not cached yet
+    _loadingDirs.add(path);
+    _renderTree();
+    _fetchDir(path).then(() => {
+      _loadingDirs.delete(path);
+      _expandedDirs.add(path);
+      _renderTree();
+    }).catch(() => { _loadingDirs.delete(path); _renderTree(); });
   }
-  _renderTree();
 }
 
+// Initial load: fetch root level
 fetch('/api/media-dirs').then(r => r.json()).then(d => {
-  const alert = document.getElementById('dl-media-alert');
+  const alertEl = document.getElementById('dl-media-alert');
   if (!d.configured) {
-    alert.style.display = 'block';
-    alert.innerHTML = '<div class="card" style="border:1px solid #dc2626;background:rgba(220,38,38,0.08);padding:12px">❌ 未配置 MEDIA_ROOT。请在 <code>.env</code> 中设置 <code>MEDIA_ROOT=/mnt/truenas/media</code> 并重建容器。</div>';
+    alertEl.style.display = 'block';
+    alertEl.innerHTML = '<div class="card" style="border:1px solid #dc2626;background:rgba(220,38,38,0.08);padding:12px">❌ 未配置 MEDIA_ROOT。请在 <code>.env</code> 中设置 <code>MEDIA_ROOT=/mnt/truenas/media</code> 并重建容器。</div>';
     document.getElementById('dl-btn').disabled = true;
     return;
   }
   if (!d.writable) {
-    alert.style.display = 'block';
-    alert.innerHTML = '<div class="card" style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px">⚠️ 媒体目录不可写。</div>';
+    alertEl.style.display = 'block';
+    alertEl.innerHTML = '<div class="card" style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px">⚠️ 媒体目录不可写。</div>';
   }
-  _dirs = d.dirs || [];
+  // Seed cache with root children
+  _dirCache[''] = d.dirs || [];
   _selectedDir = '.';
   _renderTree();
 
@@ -1596,29 +1583,26 @@ fetch('/api/media-dirs').then(r => r.json()).then(d => {
   if (tree) {
     tree.addEventListener('click', function(e) {
       const div = e.target.closest('div[data-path]');
-      if (div) {
-        const path = div.dataset.path;
-        const hasChildren = div.dataset.hasChildren === 'true';
-        if (hasChildren) {
-          _toggleDir(path);
-        } else {
+      if (!div) return;
+      const path = div.dataset.path;
+      const hasChildren = div.dataset.hasChildren === 'true';
+      if (path === '.') {
+        _selectedDir = '.';
+        _renderTree();
+      } else if (hasChildren) {
+        // Click on a dir with children: toggle expand/collapse
+        // Second click selects (if already expanded)
+        if (_expandedDirs.has(path) && _selectedDir !== path) {
           _selectedDir = path;
           _renderTree();
+        } else {
+          _toggleDir(path);
         }
+      } else {
+        _selectedDir = path;
+        _renderTree();
       }
     });
-  }
-
-  const hint = document.getElementById('dl-dir-hint');
-  const customWrap = document.getElementById('dl-dir-custom-wrap');
-  const spacer = document.getElementById('dl-dir-spacer');
-  if (d.truncated) {
-    hint.style.display = '';
-    hint.textContent = '⚠️ 目录过多，仅显示前 ' + d.dirs.length + ' 个（深度3层）。如需更深的路径，请手动输入：';
-    customWrap.style.display = '';
-    spacer.style.display = 'none';
-  } else {
-    spacer.style.marginBottom = '16px';
   }
 }).catch(() => {});
 
