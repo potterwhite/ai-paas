@@ -1970,12 +1970,96 @@ async def api_download(request: Request):
                         yield sse("progress", message=text[:120])
                 await proc.wait()
 
-            # ── AI transcribe (stub — Whisper integration pending) ───────
+            # ── AI transcribe via Whisper ────────────────────────────────
             if ai_transcribe:
-                yield sse("progress", message="AI 转录：正在调用 Whisper...")
-                # TODO: POST to WHISPER_BASE_URL /v1/audio/transcriptions
-                # For now, check if any audio/video file exists and call whisper
-                yield sse("progress", message="AI 转录暂未完全集成，字幕文件已下载（如有）")
+                yield sse("progress", message="AI 转录：查找已下载的视频/音频文件...")
+                # Find the video/audio file just downloaded
+                media_exts = {".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".flac", ".wav", ".opus"}
+                media_file = None
+                for f in sorted(target_dir.iterdir()):
+                    if f.is_file() and f.suffix.lower() in media_exts and f.name not in existing_files:
+                        media_file = f
+                        break
+
+                if not media_file:
+                    yield sse("progress", message="⚠️ 未找到可转录的媒体文件，跳过 AI 字幕生成")
+                else:
+                    yield sse("progress", message=f"AI 转录：正在提取音频 → Whisper...")
+                    import tempfile
+                    import httpx as _httpx
+                    try:
+                        # Extract 16kHz mono WAV for Whisper (faster + better accuracy)
+                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+                            wav_path = tmp_wav.name
+                        wav_proc = await asyncio.create_subprocess_exec(
+                            "ffmpeg", "-y", "-i", str(media_file),
+                            "-ar", "16000", "-ac", "1", "-f", "wav", wav_path,
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        await wav_proc.wait()
+
+                        yield sse("progress", message="AI 转录：调用 Whisper（时间取决于视频长度）...")
+                        async with _httpx.AsyncClient(timeout=600) as client:
+                            with open(wav_path, "rb") as af:
+                                r = await client.post(
+                                    f"{WHISPER_BASE_URL}/audio/transcriptions",
+                                    files={"file": (Path(wav_path).name, af, "audio/wav")},
+                                    data={"model": WHISPER_MODEL, "response_format": "verbose_json"},
+                                )
+                        Path(wav_path).unlink(missing_ok=True)
+
+                        if r.status_code != 200:
+                            yield sse("progress", message=f"⚠️ Whisper 返回错误 {r.status_code}，跳过字幕生成")
+                        else:
+                            wdata = r.json()
+                            segments = wdata.get("segments", [])
+                            if segments:
+                                # Build SRT
+                                def _ts(sec: float) -> str:
+                                    h = int(sec // 3600)
+                                    m = int((sec % 3600) // 60)
+                                    s = int(sec % 60)
+                                    ms = int(round((sec - int(sec)) * 1000))
+                                    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+                                srt_lines = []
+                                for i, seg in enumerate(segments, 1):
+                                    srt_lines.append(str(i))
+                                    srt_lines.append(f"{_ts(seg['start'])} --> {_ts(seg['end'])}")
+                                    srt_lines.append(seg["text"].strip())
+                                    srt_lines.append("")
+                                srt_content = "\n".join(srt_lines)
+                                srt_path = media_file.with_suffix(".whisper.srt")
+                                srt_path.write_text(srt_content, encoding="utf-8")
+                                yield sse("progress", message=f"✅ 字幕已生成：{srt_path.name} ({len(segments)} 段)")
+
+                                # Embed into video if requested
+                                if embed_subs and media_file.suffix.lower() in {".mp4", ".mkv"}:
+                                    yield sse("progress", message="嵌入字幕到视频...")
+                                    embed_out = media_file.with_stem(media_file.stem + ".subbed")
+                                    embed_proc = await asyncio.create_subprocess_exec(
+                                        "ffmpeg", "-y", "-i", str(media_file),
+                                        "-i", str(srt_path),
+                                        "-c", "copy", "-c:s", "mov_text",
+                                        str(embed_out),
+                                        stdout=asyncio.subprocess.DEVNULL,
+                                        stderr=asyncio.subprocess.DEVNULL,
+                                    )
+                                    await embed_proc.wait()
+                                    if embed_proc.returncode == 0:
+                                        yield sse("progress", message=f"✅ 字幕已嵌入：{embed_out.name}")
+                            else:
+                                # No segments but may have plain text
+                                plain = wdata.get("text", "").strip()
+                                if plain:
+                                    txt_path = media_file.with_suffix(".whisper.txt")
+                                    txt_path.write_text(plain, encoding="utf-8")
+                                    yield sse("progress", message=f"✅ 转录文本已保存：{txt_path.name}")
+                                else:
+                                    yield sse("progress", message="⚠️ Whisper 未识别到语音内容")
+                    except Exception as e:
+                        yield sse("progress", message=f"⚠️ AI 转录失败: {str(e)[:100]}")
 
             # Collect newly created files
             for f in sorted(target_dir.iterdir()):
