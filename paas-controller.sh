@@ -51,11 +51,20 @@ main() {
         start)
             start_services
             ;;
+        start-all)
+            start_all_services
+            ;;
         stop)
             stop_services
             ;;
+        stop-all)
+            stop_all_services
+            ;;
         restart)
             restart_services
+            ;;
+        restart-all)
+            restart_all_services
             ;;
         clean-data)
             clean_data
@@ -75,6 +84,9 @@ main() {
         prepare)
             shift
             prepare "$@"
+            ;;
+        rebuild-comfyui)
+            rebuild_comfyui
             ;;
         fix-permissions)
             fix_permissions

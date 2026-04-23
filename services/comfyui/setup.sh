@@ -29,13 +29,15 @@
 # Can also be run manually:
 #   docker exec ai_comfyui bash /root/ComfyUI/setup.sh
 #
-# Model groups downloaded (total ~45 GB on first run):
-#   1. Custom nodes     — 4 ComfyUI extensions (git clone)
+# Model groups downloaded (total ~50 GB on first run):
+#   1. Custom nodes     — 5 ComfyUI extensions (git clone)
 #   2. CogVideoX-5B    — ~26 GB  (transformer + VAE + T5-XXL BF16 + T5-XXL fp8)
 #   3. LivePortrait     — ~350 MB (digital human)
 #   4. SD 1.5           — ~4 GB   (image generation)
 #   5. SDXL Base        — ~7 GB   (image generation, higher quality)
 #   6. Workflow sync    — copy built-in workflows to Browse UI
+#   7. (reserved — see step numbering)
+#   8. MuseTalk         — ~4.2 GB (audio-driven lip sync: weights + whisper + vae + dwpose)
 #
 # Each file is verified by SHA-256 checksum after download. Files that already
 # exist AND pass checksum are skipped. Corrupt/partial files are re-downloaded.
@@ -49,7 +51,7 @@ MODELS_BASE="/root/ComfyUI/models"
 NODES_DIR="/root/ComfyUI/custom_nodes"
 
 # Counters for final summary
-TOTAL_STEPS=6
+TOTAL_STEPS=8
 DOWNLOAD_COUNT=0
 SKIP_COUNT=0
 FAIL_COUNT=0
@@ -152,12 +154,14 @@ echo "  Models directory : $(realpath "$MODELS_BASE" 2>/dev/null || echo "$MODEL
 echo "  Nodes directory  : $(realpath "$NODES_DIR" 2>/dev/null || echo "$NODES_DIR")"
 echo "  Total steps      : ${TOTAL_STEPS}"
 echo ""
-echo "  Step 1: Custom nodes          — install 4 ComfyUI extensions"
+echo "  Step 1: Custom nodes          — install 5 ComfyUI extensions"
 echo "  Step 2: CogVideoX-5B          — ~26 GB (transformer + VAE + T5-XXL)"
 echo "  Step 3: LivePortrait           — ~350 MB (digital human models)"
 echo "  Step 4: Stable Diffusion 1.5   — ~4 GB (image generation)"
 echo "  Step 5: SDXL Base 1.0          — ~7 GB (high-quality image generation)"
 echo "  Step 6: Workflow sync          — copy built-in workflows to Browse UI"
+echo "  Step 7: (skipped — reserved numbering)"
+echo "  Step 8: MuseTalk               — ~4.2 GB (audio lip sync: weights + whisper + vae + dwpose)"
 echo ""
 echo "  Existing files with valid checksums will be skipped (no re-download)."
 echo ""
@@ -180,6 +184,131 @@ install_node "ComfyUI-VideoHelperSuite" \
 
 install_node "ComfyUI-AdvancedLivePortrait" \
     "https://github.com/PowerHouseMan/ComfyUI-AdvancedLivePortrait.git"
+
+# MuseTalk node: clone if not present
+MUSETALK_NODE="$NODES_DIR/ComfyUI-MuseTalk"
+if [ ! -d "$MUSETALK_NODE" ]; then
+    echo "  [install] ComfyUI-MuseTalk..."
+    git clone --depth=1 "https://github.com/chaojie/ComfyUI-MuseTalk.git" "$MUSETALK_NODE"
+    echo "  [done] ComfyUI-MuseTalk cloned"
+else
+    echo "  [skip] ComfyUI-MuseTalk (already cloned)"
+fi
+
+# MuseTalk Python dependencies — checked on EVERY startup because Python packages
+# live in /usr/local (not in the persistent volume) and are lost on container rebuild.
+echo "  [deps] Checking MuseTalk Python dependencies..."
+
+# -- chumpy: setup.py does `import pip` which fails in Python 3.13+ isolated build env
+if ! python3.13 -c "import chumpy" 2>/dev/null; then
+    echo "  [install] chumpy (--no-build-isolation workaround for Python 3.13)..."
+    pip install chumpy --no-build-isolation --quiet
+    echo "  [done] chumpy"
+fi
+
+# -- mmcv 2.2.0: setup.py uses locals()['__version__'] pattern broken in Python 3.13
+#    Build with MMCV_WITH_OPS=0 (no CUDA ops needed for MuseTalk's mmpose usage)
+if ! python3.13 -c "import mmcv" 2>/dev/null; then
+    echo "  [install] mmcv 2.2.0 (patching setup.py locals() bug for Python 3.13)..."
+    MMCV_TMP=$(mktemp -d)
+    curl -sL "https://files.pythonhosted.org/packages/e9/a2/57a733e7e84985a8a0e3101dfb8170fc9db92435c16afad253069ae3f9df/mmcv-2.2.0.tar.gz" \
+        | tar -xz -C "$MMCV_TMP"
+    python3.13 -c "
+path = '${MMCV_TMP}/mmcv-2.2.0/setup.py'
+old = '''def get_version():
+    version_file = 'mmcv/version.py'
+    with open(version_file, encoding='utf-8') as f:
+        exec(compile(f.read(), version_file, 'exec'))
+    return locals()['__version__']'''
+new = '''def get_version():
+    version_file = 'mmcv/version.py'
+    with open(version_file, encoding='utf-8') as f:
+        code = f.read()
+    g = {}
+    exec(compile(code, version_file, 'exec'), g)
+    return g['__version__']'''
+with open(path, 'r') as f:
+    content = f.read()
+content = content.replace(old, new)
+content = content.replace('except DistributionNotFound:', 'except (DistributionNotFound, Exception):')
+with open(path, 'w') as f:
+    f.write(content)
+"
+    cd "${MMCV_TMP}/mmcv-2.2.0" && MMCV_WITH_OPS=0 python3.13 -m pip install . --no-build-isolation --quiet
+    cd "$NODES_DIR"
+    rm -rf "$MMCV_TMP"
+    echo "  [done] mmcv"
+fi
+
+# -- xtcocotools 1.14.3: same locals() bug in setup.py
+if ! python3.13 -c "import xtcocotools" 2>/dev/null; then
+    echo "  [install] xtcocotools 1.14.3 (patching setup.py locals() bug for Python 3.13)..."
+    XTCOCO_TMP=$(mktemp -d)
+    curl -sL "https://files.pythonhosted.org/packages/6c/79/ff409182e7c6b49299cbd7ee9ac8a14bb7174827b8c0616248fd897cf5c0/xtcocotools-1.14.3.tar.gz" \
+        | tar -xz -C "$XTCOCO_TMP"
+    python3.13 -c "
+path = '${XTCOCO_TMP}/xtcocotools-1.14.3/setup.py'
+old = '''def get_version():
+    with open(version_file, 'r') as f:
+        exec(compile(f.read(), version_file, 'exec'))
+    import sys
+    # return short version for sdist
+    if 'sdist' in sys.argv or 'bdist_wheel' in sys.argv:
+        return locals()['short_version']
+    else:
+        return locals()['__version__']'''
+new = '''def get_version():
+    with open(version_file, 'r') as f:
+        code = f.read()
+    g = {}
+    exec(compile(code, version_file, 'exec'), g)
+    import sys
+    if 'sdist' in sys.argv or 'bdist_wheel' in sys.argv:
+        return g.get('short_version', g['__version__'])
+    else:
+        return g['__version__']'''
+with open(path, 'r') as f:
+    content = f.read()
+with open(path, 'w') as f:
+    f.write(content.replace(old, new))
+"
+    cd "${XTCOCO_TMP}/xtcocotools-1.14.3" && python3.13 -m pip install . --no-build-isolation --quiet
+    cd "$NODES_DIR"
+    rm -rf "$XTCOCO_TMP"
+    echo "  [done] xtcocotools"
+fi
+
+# -- mmpose --no-deps (avoids re-triggering broken xtcocotools/mmcv from its dep resolver)
+if ! python3.13 -c "import mmpose" 2>/dev/null; then
+    echo "  [install] mmpose + helpers..."
+    pip install mmpose --no-deps --quiet
+    pip install json-tricks munkres --quiet
+    echo "  [done] mmpose"
+fi
+
+# -- mmdet: required by mmpose at import time (rtmo_head.py)
+#    mmdet 3.1.0 has a hardcoded mmcv_maximum_version='2.1.0' check that rejects mmcv 2.2.0.
+#    We install --no-deps and patch the version gate to allow mmcv<2.3.0.
+if ! python3.13 -c "import mmdet" 2>/dev/null; then
+    echo "  [install] mmdet 3.1.0..."
+    pip install "mmdet==3.1.0" --no-deps --quiet
+fi
+MMDET_INIT=$(python3.13 -c "import mmdet, os; print(os.path.join(os.path.dirname(mmdet.__file__), '__init__.py'))" 2>/dev/null)
+if [ -n "$MMDET_INIT" ] && grep -q "mmcv_maximum_version = '2.1.0'" "$MMDET_INIT" 2>/dev/null; then
+    echo "  [patch] mmdet: widening mmcv_maximum_version to 2.3.0..."
+    sed -i "s/mmcv_maximum_version = '2.1.0'/mmcv_maximum_version = '2.3.0'/" "$MMDET_INIT"
+    echo "  [done] mmdet patched"
+fi
+
+# -- Remaining safe MuseTalk runtime deps
+for pkg in accelerate soundfile ffmpeg-python pydub more-itertools face-alignment; do
+    mod=$(echo "$pkg" | tr '-' '_' | sed 's/ffmpeg_python/ffmpeg/;s/face_alignment/face_alignment/')
+    if ! python3.13 -c "import $mod" 2>/dev/null; then
+        echo "  [install] $pkg..."
+        pip install "$pkg" --quiet
+    fi
+done
+echo "  [done] MuseTalk deps OK"
 
 # Compatibility patch: CogVideoXWrapper's CogVideoXLatentFormat doesn't inherit
 # from ComfyUI's LatentFormat base class and is missing latent_rgb_factors_reshape.
@@ -297,6 +426,7 @@ dl "https://huggingface.co/madebyollin/sdxl-vae-fp16-fix/resolve/main/sdxl_vae.s
 
 step_header 6 "$TOTAL_STEPS" "Workflow sync — copy to ComfyUI Browse UI"
 echo "  Copying built-in workflows so they appear in ComfyUI's sidebar."
+echo "  NOTE: Always overwrites to ensure latest changes are visible."
 echo ""
 
 WF_SRC="/root/ComfyUI/workflows"
@@ -305,13 +435,51 @@ if [ -d "$WF_SRC" ] && ls "$WF_SRC"/*.json >/dev/null 2>&1; then
     mkdir -p "$WF_DST"
     wf_count=0
     for wf in "$WF_SRC"/*.json; do
-        cp -u "$wf" "$WF_DST/" 2>/dev/null || true
+        cp -f "$wf" "$WF_DST/" 2>/dev/null || true
         wf_count=$((wf_count + 1))
     done
     echo "  [done] Synced ${wf_count} workflows to ComfyUI Browse UI"
 else
     echo "  [skip] No workflow files found in $WF_SRC"
 fi
+
+# ── 7. (reserved) ───────────────────────────────────────────────────────────
+
+step_header 7 "$TOTAL_STEPS" "Reserved — placeholder step"
+echo "  (no action)"
+
+# ── 8. MuseTalk (~4.2 GB) ────────────────────────────────────────────────────
+
+step_header 8 "$TOTAL_STEPS" "MuseTalk — audio-driven lip sync models (~4.2 GB)"
+echo "  Downloads: MuseTalk weights, Whisper tiny, SD-VAE-FT-MSE, DWPose."
+echo "  All placed under: models/diffusers/TMElyralab/MuseTalk/"
+echo ""
+
+MT_DIR="$MODELS_BASE/diffusers/TMElyralab/MuseTalk"
+MT_HF="https://huggingface.co/TMElyralab/MuseTalk/resolve/main"
+
+echo "  ── 8a. MuseTalk UNet weights (~3.4 GB) ──"
+dl_small "$MT_HF/musetalk/musetalk.json" "$MT_DIR/musetalk/musetalk.json"
+dl "$MT_HF/musetalk/pytorch_model.bin" \
+   "$MT_DIR/musetalk/pytorch_model.bin" \
+   "MuseTalk UNet weights (~3.4 GB)"
+
+echo "  ── 8b. Whisper tiny (~72 MB) ──"
+dl "https://huggingface.co/openai/whisper-tiny/resolve/main/pytorch_model.bin" \
+   "$MT_DIR/whisper/tiny.pt" \
+   "Whisper tiny (~72 MB)"
+
+echo "  ── 8c. SD-VAE-FT-MSE (~335 MB) ──"
+dl_small "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json" \
+   "$MT_DIR/sd-vae-ft-mse/config.json"
+dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.bin" \
+   "$MT_DIR/sd-vae-ft-mse/diffusion_pytorch_model.bin" \
+   "SD-VAE-FT-MSE weights (~335 MB)"
+
+echo "  ── 8d. DWPose (~407 MB) ──"
+dl "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.pth" \
+   "$MT_DIR/dwpose/dw-ll_ucoco_384.pth" \
+   "DWPose dw-ll_ucoco_384 (~407 MB)"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 

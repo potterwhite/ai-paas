@@ -1,0 +1,67 @@
+{
+  "last_node_id": 3,
+  "last_link_id": 2,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "MuseTalkRun",
+      "pos": [50, 120],
+      "size": [480, 180],
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [1]}
+      ],
+      "properties": {},
+      "widgets_values": [
+        "input/default_liveportrait_portrait.png",
+        "input/default_musetalk_speech.wav",
+        0,
+        4
+      ],
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 2,
+      "type": "VHS_VideoCombine",
+      "pos": [600, 120],
+      "size": [340, 240],
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 1}],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": {
+        "frame_rate": 25,
+        "loop_count": 0,
+        "filename_prefix": "MuseTalk_LipSync",
+        "format": "video/h264-mp4",
+        "pix_fmt": "yuv420p",
+        "crf": 19,
+        "save_metadata": true,
+        "pingpong": false,
+        "save_output": true
+      }
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {"scale": 0.7, "offset": [0, 0]},
+    "info": {
+      "name": "07 — Digital Human: MuseTalk Audio Lip Sync",
+      "description": "Drive a portrait photo with an audio file to generate lip-synced video. The mouth movements are generated directly from speech audio — perfect for text-to-speech scripts. Inputs are file paths inside the ComfyUI /input/ folder. Upload your portrait (PNG/JPG) and speech audio (WAV/MP3) to ComfyUI input folder first.",
+      "model": "MuseTalk (chaojie/ComfyUI-MuseTalk, ~4.2 GB on first run: UNet + Whisper + SD-VAE + DWPose)",
+      "vram_required": "< 8 GB",
+      "inputs": {
+        "video_path": "Path to portrait image inside ComfyUI input folder, e.g. input/my_face.png — supports image or short video",
+        "audio_path": "Path to speech audio inside ComfyUI input folder, e.g. input/my_speech.wav — WAV or MP3",
+        "bbox_shift": "Adjust mouth bounding box vertical offset (default 0). Try -5 to 5 if mouth region is misaligned.",
+        "batch_size": "Frames processed per batch (default 4). Reduce to 2 if OOM."
+      },
+      "tip": "To produce a talking-head video from text: (1) generate speech audio with any TTS tool, (2) upload portrait + audio to ComfyUI input folder, (3) update the two path widgets, (4) Queue."
+    }
+  },
+  "version": 0.4
+}

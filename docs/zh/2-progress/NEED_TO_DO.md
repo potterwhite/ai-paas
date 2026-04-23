@@ -15,7 +15,9 @@
 
 ### 待解决问题
 
-- **yt-dlp cookies 续期** ✅ 已实现：`ai_cookie_manager` sidecar 容器（Playwright + noVNC），自动每 6 小时刷新。待部署测试。
+- [ ] **MuseTalk 安装卡点**：`mmcv._ext` C++ extension 在 mmcv-lite 中不存在，导致 ComfyUI-MuseTalk 节点 import 失败。所有 Python 层 patch 已完成（chumpy/mmcv/xtcocotools/mmdet/mmpose），唯一剩余问题是 mmcv 的 CUDA C++ ops。详见 PKB: `plan-DEPLOY-musetalk-installation.md`。用户将自行处理。
+
+- **yt-dlp cookies 续期** ✅ 已实现并部署验证：`ai_cookie_manager` sidecar 容器（Playwright + noVNC），自动每 6 小时刷新。容器运行中，已自动刷新 2 次，health API 返回 healthy。
   - 启动：`docker compose --profile cookies up -d`
   - 首次登录：`http://localhost:6901`（noVNC → YouTube 登录）
   - 健康检查：`curl http://localhost:6902/health`
@@ -43,3 +45,14 @@
 （2026-04-13 `prepare` 下载 UX 全面改进已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
 
 （2026-04-13 CogVideoX latent_rgb_factors_reshape 修复已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
+
+
+- [ ] http://192.168.0.19:8888/download 目录选择器懒加载：先显示lv1顶层目录，点击展开再显示子目录。当前一次性全扫300条cap导致tv等目录被截断消失。
+
+- [ ] CogVideoX I2V workflow AssertionError: Image condition latents required for I2V models（进行中修复中）
+
+
+- [ ] 把这个文章里的模型加载下来“https://mp.weixin.qq.com/s/yqR1bC72Cvh1tjPD0eP6rw”
+  然后作为whisper的替代
+  然后在前端页面让我可以选择是用whisper或xx模型。
+  

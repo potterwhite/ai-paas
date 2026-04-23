@@ -63,6 +63,12 @@ def _ytdlp_base_cmd() -> list[str]:
         cmd.extend(["--cookies", YTDLP_COOKIES_PATH])
     return cmd
 
+# ── Branding ────────────────────────────────────────────────────────────────
+APP_NAME         = os.getenv("APP_NAME", "ai-paas")                # displayed in header + title
+
+# ── Media storage (NFS / local) ─────────────────────────────────────────────
+MEDIA_ROOT       = os.getenv("MEDIA_ROOT", "")                     # /media inside container (mapped from host)
+
 # ── Model manager config (low-coupling: change these two vars to reuse in other projects) ──
 MODELS_ROOT      = os.getenv("MODELS_ROOT", "/models")          # host path mapped into container
 VLLM_CONTAINER   = os.getenv("VLLM_CONTAINER", "ai_vllm_qwen")  # default container; switching delegates to Router
@@ -220,7 +226,7 @@ def _monitor_download_dir(task_id: str, local_dir: str, poll_interval: float = 3
         except Exception:
             pass  # directory may not exist yet or be in transition
 
-app = FastAPI(title="ai-paas WebUI")
+app = FastAPI(title=f"{APP_NAME} WebUI")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
@@ -246,6 +252,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
     nav_links = [
         ("/",          "🏠", "首页"),
         ("/subtitle",  "🎬", "字幕"),
+        ("/download",  "📥", "下载"),
         ("/translate", "🌐", "翻译"),
         ("/comfyui",   "🎨", "生成"),
         ("/gpu",       "⚡", "GPU"),
@@ -262,7 +269,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{title} — ai-paas</title>
+  <title>{title} — {APP_NAME}</title>
   <link rel="stylesheet" href="/static/style.css">
   <style>
   /* ── Switching overlay (orb effect) ─────────────────────────────────── */
@@ -360,7 +367,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
 </head>
 <body>
 <header>
-  <h1><span>ai</span>-paas</h1>
+  <h1><a href="/" style="text-decoration:none;color:inherit">{APP_NAME}</a></h1>
   <nav>{nav_html}</nav>
 </header>
 
@@ -393,8 +400,11 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
   <div class="sw-progress-wrap"><div class="sw-progress-fill" id="sw-progress-bar"></div></div>
 </div>
 
-<main>{body}</main>
+<main>
+<div id="cookie-alert" style="display:none;"></div>
+{body}</main>
 <script>
+var APP_NAME = '{APP_NAME}';
 // ── Global switching overlay ────────────────────────────────────────────────
 var _swState = null; // null = idle; object = switching in progress
 
@@ -573,6 +583,34 @@ function showDependencyAlert(deps) {{
 // Initial load
 // Initial load
 fetch('/status').then(r => r.json()).then(updateGpuWidget).catch(() => {{}});
+// ── Global cookie alert ───────────────────────────────────────────────────
+function _fmtCookieAge(hours) {{
+  if (hours === null || hours === undefined) return '未知';
+  var m = Math.round(hours * 60);
+  if (m < 1) return '刚刚';
+  if (m < 60) return m + ' 分钟前';
+  var h = Math.floor(m / 60), mm = m % 60;
+  return mm > 0 ? h + ' 小时 ' + mm + ' 分钟前' : h + ' 小时前';
+}}
+function _checkCookieAlert() {{
+  fetch('/api/cookie-status').then(r => r.json()).then(d => {{
+    const el = document.getElementById('cookie-alert');
+    if (!el || !d.enabled) {{ if (el) el.style.display='none'; return; }}
+    if (!d.file_exists || (d.cookie_age_hours !== null && d.cookie_age_hours > 24)) {{
+      const msg = d.file_exists ? 'YouTube cookies 可能已过期（' + _fmtCookieAge(d.cookie_age_hours) + '刷新）' : 'YouTube cookies 文件不存在';
+      const vnc = 'http://' + location.hostname + ':6901/vnc.html';
+      el.innerHTML = '<div class="card" style="margin-bottom:16px;border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px 16px">'
+        + '<span style="color:#f59e0b;font-weight:600">⚠️ ' + msg + '</span>'
+        + ' &nbsp;<a href="' + vnc + '" target="_blank" style="color:var(--accent)">打开 noVNC 登录 YouTube →</a>'
+        + '</div>';
+      el.style.display = 'block';
+    }} else {{
+      el.style.display = 'none';
+    }}
+  }}).catch(() => {{}});
+}}
+_checkCookieAlert();
+setInterval(_checkCookieAlert, 60000);
 </script>
 </body>
 </html>""")
@@ -825,6 +863,92 @@ async def gpu_status_lite():
     return JSONResponse(result)
 
 
+@app.get("/api/cookie-status")
+async def cookie_status():
+    """Return cookie file status + cookie-manager health (if reachable)."""
+    cookie_path = Path(YTDLP_COOKIES_PATH) if YTDLP_COOKIES_PATH else None
+    result = {
+        "enabled": bool(YTDLP_COOKIES_PATH),
+        "file_exists": cookie_path.is_file() if cookie_path else False,
+        "cookie_age_hours": None,
+        "manager": None,
+    }
+    if result["file_exists"]:
+        mtime = cookie_path.stat().st_mtime
+        result["cookie_age_hours"] = round((time.time() - mtime) / 3600, 1)
+
+    # Try to reach cookie-manager health API (may not be running)
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "http://ai_cookie_manager:6902/health", timeout=2.0
+            )
+            if resp.status_code == 200:
+                result["manager"] = resp.json()
+    except Exception:
+        pass  # cookie-manager not running — that's fine
+
+    return JSONResponse(result)
+
+
+@app.post("/api/cookie-refresh")
+async def cookie_refresh_proxy():
+    """Proxy to cookie-manager POST /refresh endpoint."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "http://ai_cookie_manager:6902/refresh", timeout=60.0
+            )
+            return JSONResponse(resp.json())
+    except Exception as e:
+        return JSONResponse(
+            {"success": False, "message": f"Cookie Manager 未运行或不可达: {e}"},
+            status_code=502,
+        )
+
+
+@app.get("/api/media-dirs")
+async def media_dirs(parent: str = ""):
+    """Return direct children of `parent` (relative to MEDIA_ROOT). Lazy-load one level at a time."""
+    if not MEDIA_ROOT or not Path(MEDIA_ROOT).is_dir():
+        return JSONResponse({"configured": False, "dirs": []})
+
+    root = Path(MEDIA_ROOT)
+    # Security: reject path traversal in parent parameter
+    if parent:
+        try:
+            target = (root / parent).resolve()
+            target.relative_to(root.resolve())
+        except (ValueError, Exception):
+            return JSONResponse({"error": "Invalid parent path"}, status_code=400)
+    else:
+        target = root
+
+    dirs: list[dict] = []
+    try:
+        children = sorted(target.iterdir())
+    except PermissionError:
+        children = []
+
+    for child in children:
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        rel = f"{parent}/{child.name}" if parent else child.name
+        # Check if this dir has any subdirectories (for expand arrow)
+        try:
+            has_children = any(c.is_dir() and not c.name.startswith(".") for c in child.iterdir())
+        except PermissionError:
+            has_children = False
+        dirs.append({
+            "path": rel,
+            "writable": os.access(child, os.W_OK),
+            "has_children": has_children,
+        })
+
+    root_writable = os.access(MEDIA_ROOT, os.W_OK)
+    return JSONResponse({"configured": True, "writable": root_writable, "dirs": dirs})
+
+
 # ── /  (Home) ────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def home():
@@ -887,6 +1011,7 @@ async def subtitle_page():
   <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
     优先使用 YouTube 字幕（无需 GPU）；无字幕时自动用 Whisper 转录。
   </p>
+  <div id="sub-cookie-hint" style="font-size:12px;margin-bottom:14px;display:none"></div>
 
   <div class="form-group">
     <label>YouTube 链接（可选，优先使用）</label>
@@ -959,6 +1084,30 @@ async function runSubtitle() {
     btn.innerHTML = '▶ 生成字幕';
   }
 }
+// Cookie status hint for subtitle page
+fetch('/api/cookie-status').then(r => r.json()).then(d => {
+  const el = document.getElementById('sub-cookie-hint');
+  if (!el || !d.enabled) return;
+  el.style.display = 'block';
+  function fAge(h) {
+    if (h === null) return '未知';
+    var m = Math.round(h * 60);
+    if (m < 1) return '刚刚';
+    if (m < 60) return m + ' 分钟前';
+    var hh = Math.floor(m / 60), mm = m % 60;
+    return mm > 0 ? hh + ' 小时 ' + mm + ' 分钟前' : hh + ' 小时前';
+  }
+  if (d.file_exists && d.cookie_age_hours <= 24) {
+    el.style.color = '#22c55e';
+    el.innerHTML = '🍪 YouTube 已登录（cookies ' + fAge(d.cookie_age_hours) + '刷新），可访问受限视频';
+  } else if (d.file_exists) {
+    el.style.color = '#f59e0b';
+    el.innerHTML = '⚠️ YouTube cookies 可能已过期（' + fAge(d.cookie_age_hours) + '刷新）。<a href="http://' + location.hostname + ':6901/vnc.html" target="_blank" style="color:var(--accent)">重新登录</a>';
+  } else {
+    el.style.color = 'var(--text-dim)';
+    el.innerHTML = '🍪 未检测到 YouTube cookies。<a href="http://' + location.hostname + ':6901/vnc.html" target="_blank" style="color:var(--accent)">登录 YouTube</a> 可解锁受限视频';
+  }
+}).catch(() => {});
 </script>
 """
     return page("字幕生成", "/subtitle", body)
@@ -1074,6 +1223,864 @@ async def api_subtitle(
         result = transcript
 
     return JSONResponse({"result": result})
+
+
+# ── /download ────────────────────────────────────────────────────────────────
+@app.get("/download", response_class=HTMLResponse)
+async def download_page():
+    body = """
+<div class="card">
+  <h2>媒体下载</h2>
+  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+    支持 YouTube、B站、Twitter/X、Instagram、Facebook、TikTok 等 1000+ 平台。
+  </p>
+  <div id="dl-media-alert" style="display:none"></div>
+  <div id="sub-cookie-hint" style="font-size:12px;margin-bottom:14px;display:none"></div>
+
+  <!-- URL + probe -->
+  <div style="display:flex;gap:8px;margin-bottom:4px">
+    <input type="url" id="dl-url" placeholder="粘贴任意视频链接…" style="flex:1" onblur="probeUrl()">
+    <button class="btn btn-ghost" id="dl-probe-btn" onclick="probeUrl()" style="white-space:nowrap;font-size:12px">🔍 探测</button>
+  </div>
+  <div id="dl-probe-status" style="font-size:12px;color:var(--text-dim);margin-bottom:16px;min-height:18px"></div>
+
+  <!-- ── Section 1: Video ── -->
+  <div class="dl-section" id="sec-video">
+    <div class="dl-section-header" onclick="toggleSection('video')">
+      <span id="sec-video-icon">▼</span>
+      <span style="font-weight:600">🎬 视频</span>
+      <label onclick="event.stopPropagation()" style="margin-left:auto;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="dl-enable-video" checked onchange="toggleEnable('video')"> 启用
+      </label>
+    </div>
+    <div id="sec-video-body" class="dl-section-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="form-group" style="margin:0">
+          <label>分辨率</label>
+          <select id="dl-resolution">
+            <option value="best">最佳</option>
+            <option value="1080" selected>1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+            <option value="360">360p</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0">
+          <label>格式</label>
+          <select id="dl-video-format">
+            <option value="mp4" selected>MP4</option>
+            <option value="mkv">MKV</option>
+            <option value="webm">WebM</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Section 2: Audio ── -->
+  <div class="dl-section" id="sec-audio">
+    <div class="dl-section-header" onclick="toggleSection('audio')">
+      <span id="sec-audio-icon">▼</span>
+      <span style="font-weight:600">🎵 音频</span>
+      <label onclick="event.stopPropagation()" style="margin-left:auto;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="dl-enable-audio" onchange="toggleEnable('audio')"> 单独保存音频
+      </label>
+    </div>
+    <div id="sec-audio-body" class="dl-section-body">
+      <div class="form-group" style="margin:0">
+        <label>音频格式</label>
+        <select id="dl-audio-format">
+          <option value="mp3" selected>MP3（兼容性最好）</option>
+          <option value="m4a">M4A（AAC，高质量）</option>
+          <option value="flac">FLAC（无损）</option>
+          <option value="opus">Opus（体积最小）</option>
+          <option value="wav">WAV（无损，体积大）</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Section 3: Subtitles ── -->
+  <div class="dl-section" id="sec-subs">
+    <div class="dl-section-header" onclick="toggleSection('subs')">
+      <span id="sec-subs-icon">▼</span>
+      <span style="font-weight:600">📄 字幕</span>
+      <label onclick="event.stopPropagation()" style="margin-left:auto;font-size:12px;cursor:pointer">
+        <input type="checkbox" id="dl-enable-subs" checked onchange="toggleEnable('subs')"> 启用
+      </label>
+    </div>
+    <div id="sec-subs-body" class="dl-section-body">
+      <div id="dl-subs-ai-hint" style="display:none;font-size:12px;padding:8px 10px;border-radius:6px;background:rgba(245,158,11,0.12);border:1px solid #f59e0b;margin-bottom:10px">
+        ⚠️ 此内容无内嵌字幕，启用字幕将使用 Whisper AI 自动生成。
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+        <div class="form-group" style="margin:0">
+          <label>语言</label>
+          <select id="dl-sub-lang">
+            <option value="zh,zh-Hans,zh-Hant,en">中英文（推荐）</option>
+            <option value="zh,zh-Hans,zh-Hant">仅中文</option>
+            <option value="en">仅英文</option>
+            <option value="ja">日语</option>
+            <option value="ko">韩语</option>
+            <option value="all">全部语言</option>
+          </select>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end">
+          <label style="font-size:12px;cursor:pointer">
+            <input type="checkbox" id="dl-embed-subs"> 嵌入字幕到视频
+          </label>
+          <label style="font-size:12px;cursor:pointer">
+            <input type="checkbox" id="dl-write-subs" checked> 下载字幕文件 (.srt)
+          </label>
+          <label style="font-size:12px;cursor:pointer" id="dl-ai-transcribe-label">
+            <input type="checkbox" id="dl-transcribe"> AI 生成字幕（Whisper）
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save dir + playlist -->
+  <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;margin-top:8px;margin-bottom:4px">
+    <div class="form-group" style="margin:0">
+      <label>保存到</label>
+      <div id="dl-dir-tree" style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:var(--bg);font-size:13px;line-height:1.6"></div>
+    </div>
+    <label style="font-size:12px;cursor:pointer;white-space:nowrap;padding-bottom:6px">
+      <input type="checkbox" id="dl-playlist"> 下载整个播放列表
+    </label>
+  </div>
+  <div id="dl-dir-hint" style="display:none;font-size:11px;color:var(--text-dim);margin-bottom:4px"></div>
+  <div id="dl-dir-custom-wrap" style="display:none;margin-bottom:16px">
+    <input type="text" id="dl-dir-custom" placeholder="手动输入相对路径，例如 tv/Doraemon/Season2"
+      style="font-size:12px;padding:4px 8px" oninput="syncCustomDir()">
+  </div>
+  <div id="dl-dir-spacer" style="margin-bottom:16px"></div>
+
+  <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">📥 开始下载</button>
+
+  <div id="dl-progress" style="display:none;margin-top:16px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <span class="ck-spin" style="font-size:18px">⟳</span>
+      <span id="dl-status" style="font-size:14px;font-weight:600">准备中...</span>
+      <span id="dl-pct" style="font-size:13px;color:var(--text-dim)"></span>
+    </div>
+    <div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:8px;overflow:hidden">
+      <div id="dl-bar" style="height:100%;width:0%;background:var(--accent);transition:width 0.3s;border-radius:2px"></div>
+    </div>
+    <pre id="dl-log" style="max-height:200px;overflow-y:auto;font-size:11px;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;white-space:pre-wrap;color:var(--text-dim)"></pre>
+  </div>
+  <div id="dl-result" style="display:none;margin-top:16px"></div>
+</div>
+
+<style>
+.ck-spin { display:inline-block; animation: ck-rotate 1s linear infinite; }
+@keyframes ck-rotate { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+.dl-section { border:1px solid var(--border); border-radius:8px; margin-bottom:10px; overflow:hidden; }
+.dl-section-header { display:flex; align-items:center; gap:8px; padding:10px 14px; cursor:pointer; background:var(--surface); font-size:13px; user-select:none; }
+.dl-section-header:hover { background:var(--border); }
+.dl-section-body { padding:12px 14px; }
+.dl-section.disabled { opacity:0.45; pointer-events:none; }
+.dl-section.disabled .dl-section-header { pointer-events:auto; }
+</style>
+
+<script>
+// ── Section collapse/expand ──────────────────────────────────────────────────
+const _sectionOpen = {video: true, audio: true, subs: true};
+function toggleSection(s) {
+  _sectionOpen[s] = !_sectionOpen[s];
+  document.getElementById('sec-' + s + '-body').style.display = _sectionOpen[s] ? '' : 'none';
+  document.getElementById('sec-' + s + '-icon').textContent = _sectionOpen[s] ? '▼' : '▶';
+}
+function toggleEnable(s) {
+  const enabled = document.getElementById('dl-enable-' + s).checked;
+  const sec = document.getElementById('sec-' + s);
+  sec.classList.toggle('disabled', !enabled);
+}
+// Init: audio section closed by default (not enabled)
+document.getElementById('sec-audio-body').style.display = 'none';
+document.getElementById('sec-audio-icon').textContent = '▶';
+_sectionOpen.audio = false;
+
+// ── URL probe ────────────────────────────────────────────────────────────────
+let _probeAbort = null;
+let _lastProbedUrl = '';
+async function probeUrl() {
+  const url = document.getElementById('dl-url').value.trim();
+  if (!url || url === _lastProbedUrl) return;
+  _lastProbedUrl = url;
+  if (_probeAbort) _probeAbort.abort();
+  _probeAbort = new AbortController();
+  const statusEl = document.getElementById('dl-probe-status');
+  statusEl.textContent = '🔍 探测中...';
+  statusEl.style.color = 'var(--text-dim)';
+  try {
+    const r = await fetch('/api/download/probe', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url}),
+      signal: _probeAbort.signal,
+    });
+    const d = await r.json();
+    if (d.error) { statusEl.textContent = '⚠️ ' + d.error; return; }
+
+    // Video availability
+    const secVideo = document.getElementById('sec-video');
+    const enableVideoCb = document.getElementById('dl-enable-video');
+    if (!d.has_video) {
+      secVideo.classList.add('disabled');
+      enableVideoCb.checked = false;
+      secVideo.querySelector('.dl-section-header span:nth-child(2)').textContent = '🎬 视频（无视频流，已禁用）';
+    } else {
+      secVideo.classList.remove('disabled');
+      enableVideoCb.checked = true;
+      secVideo.querySelector('.dl-section-header span:nth-child(2)').textContent = '🎬 视频';
+    }
+
+    // Subtitle availability
+    const aiHint = document.getElementById('dl-subs-ai-hint');
+    const transcribeCb = document.getElementById('dl-transcribe');
+    if (!d.has_subs) {
+      aiHint.style.display = '';
+      transcribeCb.checked = true;
+    } else {
+      aiHint.style.display = 'none';
+      transcribeCb.checked = false;
+    }
+
+    // Playlist
+    if (d.is_playlist) {
+      document.getElementById('dl-playlist').checked = true;
+    }
+
+    // Status line
+    const parts = [];
+    if (d.title) parts.push(d.title.length > 50 ? d.title.slice(0, 50) + '…' : d.title);
+    if (d.duration) parts.push(_fmtDuration(d.duration));
+    if (d.uploader) parts.push(d.uploader);
+    statusEl.textContent = parts.length ? '✅ ' + parts.join(' · ') : '✅ 探测成功';
+    statusEl.style.color = '#22c55e';
+  } catch(e) {
+    if (e.name !== 'AbortError') { statusEl.textContent = '探测失败（可直接下载）'; statusEl.style.color = 'var(--text-dim)'; }
+  }
+}
+function _fmtDuration(s) {
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  if (h) return h + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+  return m + ':' + String(sec).padStart(2,'0');
+}
+
+// ── Media dirs (lazy-load tree) ────────────────────────────────────────────
+// Cache: parent path → [{path, writable, has_children}]
+let _dirCache = {};          // "" = root children, "Movies" = Movies/ children …
+let _selectedDir = '';
+let _expandedDirs = new Set();
+let _loadingDirs = new Set();
+
+// Fetch one level from API; returns promise resolving to children array
+function _fetchDir(parent) {
+  const key = parent || '';
+  if (_dirCache[key] !== undefined) return Promise.resolve(_dirCache[key]);
+  const url = '/api/media-dirs' + (parent ? '?parent=' + encodeURIComponent(parent) : '');
+  return fetch(url).then(r => r.json()).then(d => {
+    _dirCache[key] = d.dirs || [];
+    return _dirCache[key];
+  });
+}
+
+function _renderTree() {
+  const tree = document.getElementById('dl-dir-tree');
+  if (!tree) return;
+  tree.innerHTML = '';
+
+  // Root row
+  const rootDiv = document.createElement('div');
+  rootDiv.style.cssText = 'padding-left:0;cursor:pointer;border-radius:4px;font-weight:600';
+  if (_selectedDir === '.') { rootDiv.style.background = 'var(--accent)'; rootDiv.style.color = 'white'; }
+  rootDiv.dataset.path = '.';
+  rootDiv.innerHTML = '<span style="margin-right:4px;font-size:14px">📂</span>/ (根目录)';
+  tree.appendChild(rootDiv);
+
+  // Recursively render already-loaded levels
+  function renderLevel(parent, depth) {
+    const key = parent || '';
+    const kids = _dirCache[key];
+    if (!kids) return;
+    kids.slice().sort((a, b) => a.path.localeCompare(b.path)).forEach(d => {
+      const isOpen = _expandedDirs.has(d.path);
+      const isSelected = _selectedDir === d.path;
+      const isLoading = _loadingDirs.has(d.path);
+
+      const div = document.createElement('div');
+      div.style.cssText = `padding-left:${depth * 16}px;cursor:pointer;border-radius:4px;display:flex;align-items:center;gap:4px`;
+      if (isSelected) { div.style.background = 'var(--accent)'; div.style.color = 'white'; }
+      div.dataset.path = d.path;
+      div.dataset.hasChildren = d.has_children;
+
+      const arrow = document.createElement('span');
+      arrow.style.cssText = 'font-size:10px;width:12px;display:inline-block;flex-shrink:0;color:var(--text-dim)';
+      if (isLoading) arrow.textContent = '…';
+      else if (d.has_children) arrow.textContent = isOpen ? '▼' : '▶';
+      else arrow.textContent = '';
+
+      const icon = document.createElement('span');
+      icon.style.cssText = 'font-size:14px;flex-shrink:0';
+      icon.textContent = (d.has_children && isOpen) ? '📂' : '📁';
+
+      const name = document.createElement('span');
+      name.textContent = ' ' + d.path.split('/').pop() + (d.writable ? '' : ' 🔒');
+      if (!d.writable) name.style.color = isSelected ? 'rgba(255,255,255,0.7)' : '#999';
+
+      div.appendChild(arrow);
+      div.appendChild(icon);
+      div.appendChild(name);
+      tree.appendChild(div);
+
+      if (d.has_children && isOpen) {
+        renderLevel(d.path, depth + 1);
+      }
+    });
+  }
+  renderLevel('', 1);
+}
+
+function _toggleDir(path) {
+  if (_expandedDirs.has(path)) {
+    // Collapse: remove from expanded
+    _expandedDirs.delete(path);
+    _renderTree();
+  } else {
+    // Expand: fetch children if not cached yet
+    _loadingDirs.add(path);
+    _renderTree();
+    _fetchDir(path).then(() => {
+      _loadingDirs.delete(path);
+      _expandedDirs.add(path);
+      _renderTree();
+    }).catch(() => { _loadingDirs.delete(path); _renderTree(); });
+  }
+}
+
+// Initial load: fetch root level
+fetch('/api/media-dirs').then(r => r.json()).then(d => {
+  const alertEl = document.getElementById('dl-media-alert');
+  if (!d.configured) {
+    alertEl.style.display = 'block';
+    alertEl.innerHTML = '<div class="card" style="border:1px solid #dc2626;background:rgba(220,38,38,0.08);padding:12px">❌ 未配置 MEDIA_ROOT。请在 <code>.env</code> 中设置 <code>MEDIA_ROOT=/mnt/truenas/media</code> 并重建容器。</div>';
+    document.getElementById('dl-btn').disabled = true;
+    return;
+  }
+  if (!d.writable) {
+    alertEl.style.display = 'block';
+    alertEl.innerHTML = '<div class="card" style="border:1px solid #f59e0b;background:rgba(245,158,11,0.08);padding:12px">⚠️ 媒体目录不可写。</div>';
+  }
+  // Seed cache with root children
+  _dirCache[''] = d.dirs || [];
+  _selectedDir = '.';
+  _renderTree();
+
+  const tree = document.getElementById('dl-dir-tree');
+  if (tree) {
+    tree.addEventListener('click', function(e) {
+      const div = e.target.closest('div[data-path]');
+      if (!div) return;
+      const path = div.dataset.path;
+      const hasChildren = div.dataset.hasChildren === 'true';
+      if (path === '.') {
+        _selectedDir = '.';
+        _renderTree();
+      } else if (hasChildren) {
+        // Click on a dir with children: toggle expand/collapse
+        // Second click selects (if already expanded)
+        if (_expandedDirs.has(path) && _selectedDir !== path) {
+          _selectedDir = path;
+          _renderTree();
+        } else {
+          _toggleDir(path);
+        }
+      } else {
+        _selectedDir = path;
+        _renderTree();
+      }
+    });
+  }
+}).catch(() => {});
+
+function syncCustomDir() {
+  const val = document.getElementById('dl-dir-custom').value.trim();
+  // When user types in custom box, override the select value on submit
+  // (handled in startDownload by checking custom box first)
+}
+
+// ── Cookie hint ──────────────────────────────────────────────────────────────
+fetch('/api/cookie-status').then(r => r.json()).then(d => {
+  const el = document.getElementById('sub-cookie-hint');
+  if (!el || !d.enabled) return;
+  el.style.display = 'block';
+  if (d.file_exists && d.cookie_age_hours <= 24) {
+    el.style.color = '#22c55e';
+    el.innerHTML = '🍪 YouTube 已登录，可下载受限视频';
+  } else {
+    el.style.color = 'var(--text-dim)';
+    el.innerHTML = '🍪 未登录 YouTube。<a href="http://' + location.hostname + ':6901/vnc.html" target="_blank" style="color:var(--accent)">登录</a> 可解锁受限内容';
+  }
+}).catch(() => {});
+
+// ── Start download ───────────────────────────────────────────────────────────
+async function startDownload() {
+  const url = document.getElementById('dl-url').value.trim();
+  if (!url) { alert('请输入视频链接'); return; }
+
+  const videoEnabled = document.getElementById('dl-enable-video').checked;
+  const audioEnabled = document.getElementById('dl-enable-audio').checked;
+  const subsEnabled  = document.getElementById('dl-enable-subs').checked;
+  if (!videoEnabled && !audioEnabled && !subsEnabled) {
+    alert('请至少启用一个下载项（视频/音频/字幕）');
+    return;
+  }
+
+  // Determine primary download_type for backend
+  let download_type = 'video';
+  if (!videoEnabled && audioEnabled) download_type = 'audio';
+  else if (!videoEnabled && !audioEnabled && subsEnabled) download_type = 'subs';
+
+  const btn = document.getElementById('dl-btn');
+  const prog = document.getElementById('dl-progress');
+  const log = document.getElementById('dl-log');
+  const status = document.getElementById('dl-status');
+  const pct = document.getElementById('dl-pct');
+  const bar = document.getElementById('dl-bar');
+  const result = document.getElementById('dl-result');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ 下载中...';
+  prog.style.display = 'block';
+  result.style.display = 'none';
+  log.textContent = '';
+  status.textContent = '正在启动下载...';
+  pct.textContent = '';
+  bar.style.width = '0%';
+
+  try {
+    const body = {
+      url,
+      download_type,
+      video_enabled: videoEnabled,
+      audio_enabled: audioEnabled,
+      subs_enabled:  subsEnabled,
+      resolution:    document.getElementById('dl-resolution').value,
+      video_format:  document.getElementById('dl-video-format').value,
+      audio_format:  document.getElementById('dl-audio-format').value,
+      sub_lang:      document.getElementById('dl-sub-lang').value,
+      embed_subs:    document.getElementById('dl-embed-subs').checked,
+      write_subs:    document.getElementById('dl-write-subs').checked,
+      ai_transcribe: document.getElementById('dl-transcribe').checked,
+      playlist:      document.getElementById('dl-playlist').checked,
+      save_dir:      (document.getElementById('dl-dir-custom').value.trim() || _selectedDir),
+    };
+
+    const resp = await fetch('/api/download', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const ev = JSON.parse(line.slice(6));
+          if (ev.type === 'progress') {
+            const m = ev.message.match(/(\\d+\\.?\\d*)%/);
+            if (m) { bar.style.width = m[1] + '%'; pct.textContent = parseFloat(m[1]).toFixed(1) + '%'; status.textContent = '正在下载...'; }
+            else { status.textContent = ev.message; pct.textContent = ''; }
+            log.textContent += ev.message + '\\n';
+            log.scrollTop = log.scrollHeight;
+          } else if (ev.type === 'done') {
+            bar.style.width = '100%'; pct.textContent = '100%'; status.textContent = '✅ 完成'; prog.style.display = 'none';
+            let rhtml = '<div class="card" style="border:1px solid #22c55e;background:rgba(34,197,94,0.08);padding:12px"><strong>✅ 下载完成</strong><br>';
+            if (ev.files && ev.files.length) { rhtml += '<ul style="margin:8px 0 0;padding-left:20px;font-size:13px">'; ev.files.forEach(f => rhtml += '<li>' + f + '</li>'); rhtml += '</ul>'; }
+            rhtml += '<div style="font-size:12px;color:var(--text-dim);margin-top:6px">保存到: ' + ev.save_dir + '</div></div>';
+            result.innerHTML = rhtml; result.style.display = 'block';
+          } else if (ev.type === 'error') {
+            prog.style.display = 'none';
+            result.innerHTML = '<div class="card" style="border:1px solid #dc2626;background:rgba(220,38,38,0.08);padding:12px">❌ ' + ev.message + '</div>';
+            result.style.display = 'block';
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) {
+    prog.style.display = 'none';
+    result.innerHTML = '<div class="card" style="border:1px solid #dc2626;background:rgba(220,38,38,0.08);padding:12px">❌ 请求失败: ' + e.message + '</div>';
+    result.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📥 开始下载';
+  }
+}
+</script>
+"""
+    return page("下载", "/download", body)
+
+
+@app.post("/api/download/probe")
+async def api_download_probe(request: Request):
+    """Probe a URL with yt-dlp --dump-json to detect video/audio/subtitle availability."""
+    data = await request.json()
+    url = data.get("url", "").strip()
+    if not url:
+        return JSONResponse({"error": "URL required"}, status_code=400)
+
+    cmd = _ytdlp_base_cmd() + [
+        "--dump-json", "--no-playlist", "--skip-download",
+        "--quiet", url,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+    except asyncio.TimeoutError:
+        return JSONResponse({"error": "探测超时（20s），可直接尝试下载"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+    raw_stdout = stdout.decode("utf-8", errors="replace").strip()
+
+    if proc.returncode != 0:
+        # Check if we still got valid JSON output despite non-zero exit
+        # (yt-dlp sometimes exits non-zero on cookie warnings but still dumps info)
+        if not raw_stdout or not raw_stdout.startswith("{"):
+            err = stderr.decode("utf-8", errors="replace").strip()
+            for line in err.splitlines():
+                if "ERROR" in line:
+                    err = line
+                    break
+            return JSONResponse({"error": err[:200] if err else "探测失败"})
+
+    try:
+        info = json.loads(raw_stdout)
+    except Exception:
+        return JSONResponse({"error": "无法解析探测结果"})
+
+    # Detect video stream (any format with vcodec not 'none')
+    formats = info.get("formats", [])
+    has_video = any(
+        f.get("vcodec", "none") not in ("none", None) for f in formats
+    ) if formats else bool(info.get("vcodec") and info.get("vcodec") != "none")
+
+    # Detect subtitles (automatic or manual)
+    subs = info.get("subtitles", {})
+    auto_subs = info.get("automatic_captions", {})
+    has_subs = bool(subs) or bool(auto_subs)
+
+    # Playlist detection
+    is_playlist = info.get("_type") == "playlist" or bool(info.get("playlist_id"))
+
+    return JSONResponse({
+        "title":       info.get("title", ""),
+        "uploader":    info.get("uploader", info.get("channel", "")),
+        "duration":    info.get("duration"),
+        "thumbnail":   info.get("thumbnail", ""),
+        "has_video":   has_video,
+        "has_audio":   True,   # virtually all sources have audio
+        "has_subs":    has_subs,
+        "is_playlist": is_playlist,
+        "sub_langs":   list(subs.keys())[:10],
+    })
+
+
+@app.post("/api/download")
+async def api_download(request: Request):
+    """Download video/audio/subtitles via yt-dlp, stream progress via SSE."""
+    data = await request.json()
+    url = data.get("url", "").strip()
+    download_type = data.get("download_type", "video")   # video | audio | subs
+    resolution = data.get("resolution", "1080")
+    video_format = data.get("video_format", "mp4")
+    audio_format = data.get("audio_format", "mp3")
+    sub_lang = data.get("sub_lang", "zh,zh-Hans,zh-Hant,en")
+    embed_subs = data.get("embed_subs", False)
+    write_subs = data.get("write_subs", True)
+    ai_transcribe = data.get("ai_transcribe", False)
+    playlist = data.get("playlist", False)
+    save_dir = data.get("save_dir", ".")
+
+    if not url:
+        return JSONResponse({"error": "URL is required"}, status_code=400)
+
+    # Validate save path
+    if not MEDIA_ROOT or not Path(MEDIA_ROOT).is_dir():
+        return JSONResponse({"error": "MEDIA_ROOT not configured"}, status_code=500)
+
+    target_dir = Path(MEDIA_ROOT) / save_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # Security: ensure target is under MEDIA_ROOT
+    try:
+        target_dir.resolve().relative_to(Path(MEDIA_ROOT).resolve())
+    except ValueError:
+        return JSONResponse({"error": "Invalid save directory"}, status_code=400)
+
+    # Check write permission
+    if not os.access(target_dir, os.W_OK):
+        return JSONResponse(
+            {"error": f"目录 '{save_dir}' 无写入权限，请在 NAS 上检查目录权限 (chmod o+w)"},
+            status_code=403,
+        )
+
+    async def event_stream():
+        import re
+
+        def sse(event_type: str, **kwargs):
+            payload = json.dumps({"type": event_type, **kwargs})
+            return f"data: {payload}\n\n"
+
+        yield sse("progress", message=f"目标目录: {save_dir}")
+
+        base_cmd = _ytdlp_base_cmd()
+        playlist_flag = [] if playlist else ["--no-playlist"]
+        output_tmpl = ["-o", str(target_dir / "%(title)s.%(ext)s")]
+        files_created = []
+
+        try:
+            # Snapshot existing files before download to detect truly new files
+            existing_files: set[str] = set()
+            try:
+                existing_files = {f.name for f in target_dir.iterdir() if f.is_file()}
+            except Exception:
+                pass
+
+            # ── VIDEO ────────────────────────────────────────────────────
+            if download_type == "video":
+                yield sse("progress", message="正在下载视频...")
+                fmt_map = {
+                    "best": "bestvideo+bestaudio/best",
+                    "1080": "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+                    "720":  "bestvideo[height<=720]+bestaudio/best[height<=720]",
+                    "480":  "bestvideo[height<=480]+bestaudio/best[height<=480]",
+                    "360":  "bestvideo[height<=360]+bestaudio/best[height<=360]",
+                }
+                fmt = fmt_map.get(resolution, fmt_map["1080"])
+                cmd = base_cmd + [
+                    "-f", fmt,
+                    "--merge-output-format", video_format,
+                    "--newline",
+                ] + output_tmpl + playlist_flag
+                if write_subs:
+                    cmd += ["--write-auto-sub", "--write-sub", "--sub-lang", sub_lang]
+                if embed_subs:
+                    cmd += ["--embed-subs"]
+                cmd.append(url)
+
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                last_error = ""
+                async for line in proc.stdout:
+                    text = line.decode("utf-8", errors="replace").strip()
+                    if not text:
+                        continue
+                    if text.startswith("ERROR:"):
+                        last_error = text
+                    pct_match = re.search(r'\[download\]\s+(\d+\.?\d*)%', text)
+                    if pct_match:
+                        yield sse("progress", message=f"下载中: {pct_match.group(1)}%")
+                    elif "[download] Destination:" in text:
+                        fname = text.split("Destination:")[-1].strip()
+                        yield sse("progress", message=f"文件: {Path(fname).name}")
+                    elif "[Merger]" in text or "Merging" in text:
+                        yield sse("progress", message="合并音视频...")
+                    elif "[EmbedSubtitle]" in text:
+                        yield sse("progress", message="嵌入字幕...")
+                    elif text.startswith("[download] 100%"):
+                        yield sse("progress", message="下载完成，处理中...")
+                await proc.wait()
+                if proc.returncode != 0:
+                    created = [f for f in target_dir.iterdir()
+                               if f.is_file() and not f.name.startswith(".")]
+                    if not created:
+                        yield sse("error", message=last_error or "视频下载失败，请检查链接是否正确")
+                        return
+
+            # ── AUDIO ────────────────────────────────────────────────────
+            elif download_type == "audio":
+                yield sse("progress", message=f"正在提取音频 ({audio_format.upper()})...")
+                cmd = base_cmd + [
+                    "-f", "bestaudio/best",
+                    "-x", "--audio-format", audio_format,
+                    "--audio-quality", "0",
+                    "--newline",
+                ] + output_tmpl + playlist_flag + [url]
+
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                last_error = ""
+                async for line in proc.stdout:
+                    text = line.decode("utf-8", errors="replace").strip()
+                    if not text:
+                        continue
+                    if text.startswith("ERROR:"):
+                        last_error = text
+                    pct_match = re.search(r'\[download\]\s+(\d+\.?\d*)%', text)
+                    if pct_match:
+                        yield sse("progress", message=f"下载中: {pct_match.group(1)}%")
+                    elif "[ExtractAudio]" in text:
+                        yield sse("progress", message="提取音频...")
+                    elif "[download] Destination:" in text:
+                        fname = text.split("Destination:")[-1].strip()
+                        yield sse("progress", message=f"文件: {Path(fname).name}")
+                await proc.wait()
+                if proc.returncode != 0:
+                    created = [f for f in target_dir.iterdir() if f.is_file() and not f.name.startswith(".")]
+                    if not created:
+                        yield sse("error", message=last_error or "音频下载失败，请检查链接是否正确")
+                        return
+
+            # ── SUBTITLES ONLY ───────────────────────────────────────────
+            elif download_type == "subs":
+                yield sse("progress", message=f"正在下载字幕 ({sub_lang})...")
+                cmd = base_cmd + [
+                    "--write-auto-sub", "--write-sub",
+                    "--sub-lang", sub_lang,
+                    "--skip-download",
+                ] + output_tmpl + playlist_flag + [url]
+
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                async for line in proc.stdout:
+                    text = line.decode("utf-8", errors="replace").strip()
+                    if text:
+                        yield sse("progress", message=text[:120])
+                await proc.wait()
+
+            # ── AI transcribe via Whisper ────────────────────────────────
+            if ai_transcribe:
+                yield sse("progress", message="AI 转录：查找已下载的视频/音频文件...")
+                # Find the video/audio file just downloaded
+                media_exts = {".mp4", ".mkv", ".webm", ".mp3", ".m4a", ".flac", ".wav", ".opus"}
+                media_file = None
+                for f in sorted(target_dir.iterdir()):
+                    if f.is_file() and f.suffix.lower() in media_exts and f.name not in existing_files:
+                        media_file = f
+                        break
+
+                if not media_file:
+                    yield sse("progress", message="⚠️ 未找到可转录的媒体文件，跳过 AI 字幕生成")
+                else:
+                    yield sse("progress", message=f"AI 转录：正在提取音频 → Whisper...")
+                    import tempfile
+                    import httpx as _httpx
+                    try:
+                        # Extract 16kHz mono WAV for Whisper (faster + better accuracy)
+                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+                            wav_path = tmp_wav.name
+                        wav_proc = await asyncio.create_subprocess_exec(
+                            "ffmpeg", "-y", "-i", str(media_file),
+                            "-ar", "16000", "-ac", "1", "-f", "wav", wav_path,
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        await wav_proc.wait()
+
+                        yield sse("progress", message="AI 转录：调用 Whisper（时间取决于视频长度）...")
+                        async with _httpx.AsyncClient(timeout=600) as client:
+                            with open(wav_path, "rb") as af:
+                                r = await client.post(
+                                    f"{WHISPER_BASE_URL}/audio/transcriptions",
+                                    files={"file": (Path(wav_path).name, af, "audio/wav")},
+                                    data={"model": WHISPER_MODEL, "response_format": "verbose_json"},
+                                )
+                        Path(wav_path).unlink(missing_ok=True)
+
+                        if r.status_code != 200:
+                            yield sse("progress", message=f"⚠️ Whisper 返回错误 {r.status_code}，跳过字幕生成")
+                        else:
+                            wdata = r.json()
+                            segments = wdata.get("segments", [])
+                            if segments:
+                                # Build SRT
+                                def _ts(sec: float) -> str:
+                                    h = int(sec // 3600)
+                                    m = int((sec % 3600) // 60)
+                                    s = int(sec % 60)
+                                    ms = int(round((sec - int(sec)) * 1000))
+                                    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+                                srt_lines = []
+                                for i, seg in enumerate(segments, 1):
+                                    srt_lines.append(str(i))
+                                    srt_lines.append(f"{_ts(seg['start'])} --> {_ts(seg['end'])}")
+                                    srt_lines.append(seg["text"].strip())
+                                    srt_lines.append("")
+                                srt_content = "\n".join(srt_lines)
+                                srt_path = media_file.with_suffix(".whisper.srt")
+                                srt_path.write_text(srt_content, encoding="utf-8")
+                                yield sse("progress", message=f"✅ 字幕已生成：{srt_path.name} ({len(segments)} 段)")
+
+                                # Embed into video if requested
+                                if embed_subs and media_file.suffix.lower() in {".mp4", ".mkv"}:
+                                    yield sse("progress", message="嵌入字幕到视频...")
+                                    embed_out = media_file.with_stem(media_file.stem + ".subbed")
+                                    embed_proc = await asyncio.create_subprocess_exec(
+                                        "ffmpeg", "-y", "-i", str(media_file),
+                                        "-i", str(srt_path),
+                                        "-c", "copy", "-c:s", "mov_text",
+                                        str(embed_out),
+                                        stdout=asyncio.subprocess.DEVNULL,
+                                        stderr=asyncio.subprocess.DEVNULL,
+                                    )
+                                    await embed_proc.wait()
+                                    if embed_proc.returncode == 0:
+                                        yield sse("progress", message=f"✅ 字幕已嵌入：{embed_out.name}")
+                            else:
+                                # No segments but may have plain text
+                                plain = wdata.get("text", "").strip()
+                                if plain:
+                                    txt_path = media_file.with_suffix(".whisper.txt")
+                                    txt_path.write_text(plain, encoding="utf-8")
+                                    yield sse("progress", message=f"✅ 转录文本已保存：{txt_path.name}")
+                                else:
+                                    yield sse("progress", message="⚠️ Whisper 未识别到语音内容")
+                    except Exception as e:
+                        yield sse("progress", message=f"⚠️ AI 转录失败: {str(e)[:100]}")
+
+            # Collect newly created files
+            for f in sorted(target_dir.iterdir()):
+                if f.is_file() and not f.name.startswith(".") and f.name not in existing_files:
+                    size_mb = f.stat().st_size / (1024 * 1024)
+                    files_created.append(f"{f.name} ({size_mb:.1f} MB)")
+
+            if not files_created:
+                yield sse("error", message="未创建任何新文件，下载可能失败或文件已存在于目标目录")
+                return
+
+            yield sse("done", files=files_created, save_dir=str(save_dir))
+
+        except Exception as e:
+            yield sse("error", message=str(e))
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── /translate ───────────────────────────────────────────────────────────────
@@ -1485,7 +2492,7 @@ async function loadWorkflowBrowser() {
           + '<p style="font-size:14px;margin-bottom:8px">\u26a0\ufe0f \u5c1a\u672a\u914d\u7f6e HDD \u6a21\u578b\u8def\u5f84</p>'
           + '<p style="font-size:13px;color:var(--text-dim);margin-bottom:12px">\u5927\u6a21\u578b\uff08\u5982 CogVideoX ~13 GB\uff09\u5efa\u8bae\u5b58\u653e\u5728 HDD \u4e2d\u3002\u8bf7\u5728 <code>.env</code> \u6587\u4ef6\u4e2d\u8bbe\u7f6e\uff1a</p>'
           + '<code style="font-size:12px;display:block;padding:8px;background:var(--bg);border-radius:4px">COMFYUI_MODELS_HDD=/mnt/hdd/comfyui-models</code>'
-          + '<p style="font-size:12px;color:var(--text-dim);margin-top:8px">\u8bbe\u7f6e\u540e\u9700\u91cd\u542f Docker \u6808: <code>cd ~/ai-paas && docker compose up -d</code></p>'
+          + '<p style="font-size:12px;color:var(--text-dim);margin-top:8px">设置后需重启 Docker 栈: <code>cd ~/' + APP_NAME + ' &amp;&amp; docker compose up -d</code></p>'
           + '</div>';
       }
     }
@@ -1542,6 +2549,15 @@ async def gpu_page():
   </div>
   <div id="container-list"><div style="color:var(--text-dim);font-size:13px">加载中…</div></div>
 </div>
+
+<div class="card" id="cookie-card" style="display:none;">
+  <h2>YouTube Cookie 状态</h2>
+  <div id="cookie-content"><div style="color:var(--text-dim);font-size:13px">加载中…</div></div>
+</div>
+<style>
+.ck-spin { display:inline-block; animation: ck-rotate 1s linear infinite; }
+@keyframes ck-rotate { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+</style>
 
 <style>
 .toggle-wrap { position:relative; display:inline-block; width:36px; height:20px; }
@@ -1805,6 +2821,91 @@ async function ctrlContainer(action, name) {
 
 loadContainers();
 setInterval(loadContainers, 10000);
+
+// ── Cookie status card ──────────────────────────────────────────────────────
+function _fmtAge(hours) {
+  if (hours === null || hours === undefined) return '未知';
+  var totalMin = Math.round(hours * 60);
+  if (totalMin < 1) return '刚刚';
+  if (totalMin < 60) return totalMin + ' 分钟前';
+  var h = Math.floor(totalMin / 60);
+  var m = totalMin % 60;
+  return m > 0 ? h + ' 小时 ' + m + ' 分钟前' : h + ' 小时前';
+}
+
+function loadCookieStatus() {
+  fetch('/api/cookie-status').then(r => r.json()).then(d => {
+    const card = document.getElementById('cookie-card');
+    const ct = document.getElementById('cookie-content');
+    if (!card || !ct) return;
+    if (!d.enabled) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+
+    var isRefreshing = d.manager && d.manager.is_refreshing;
+    let html = '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">';
+
+    // Refreshing spinner
+    if (isRefreshing) {
+      html += '<span class="badge" style="font-size:14px;background:rgba(59,130,246,0.15);color:#3b82f6">'
+        + '<span class="ck-spin">⟳</span> 正在刷新 Cookies…</span>';
+    } else if (!d.file_exists) {
+      html += '<span class="badge badge-red" style="font-size:14px">❌ Cookie 文件不存在</span>';
+    } else if (d.cookie_age_hours <= 12) {
+      html += '<span class="badge badge-green" style="font-size:14px">✅ 正常</span>';
+      html += '<span style="color:var(--text-dim);font-size:13px">' + _fmtAge(d.cookie_age_hours) + '刷新</span>';
+    } else if (d.cookie_age_hours <= 24) {
+      html += '<span class="badge" style="font-size:14px;background:rgba(245,158,11,0.15);color:#f59e0b">⚠️ 即将过期</span>';
+      html += '<span style="color:var(--text-dim);font-size:13px">' + _fmtAge(d.cookie_age_hours) + '刷新</span>';
+    } else {
+      html += '<span class="badge badge-red" style="font-size:14px">❌ 可能已过期</span>';
+      html += '<span style="color:var(--text-dim);font-size:13px">' + _fmtAge(d.cookie_age_hours) + '刷新</span>';
+    }
+
+    // Cookie Manager status
+    if (d.manager) {
+      html += '<span style="color:var(--text-dim);font-size:13px">· Manager: ✅ 运行中';
+      if (d.manager.refresh_count > 0) html += ' · 已刷新 ' + d.manager.refresh_count + ' 次';
+      html += '</span>';
+    } else {
+      html += '<span style="color:#f59e0b;font-size:13px">· Manager: ⏸ 未运行</span>';
+    }
+
+    html += '</div>';
+
+    // Action links
+    const vnc = 'http://' + location.hostname + ':6901/vnc.html';
+    html += '<div style="margin-top:10px;font-size:13px">';
+    html += '<a href="' + vnc + '" target="_blank" style="color:var(--accent);margin-right:16px">🖥 打开 noVNC 登录 YouTube</a>';
+    if (isRefreshing) {
+      html += '<span style="color:var(--text-dim)"><span class="ck-spin">⟳</span> 刷新中…</span>';
+    } else {
+      html += '<a href="#" onclick="refreshCookies();return false;" style="color:var(--accent)">🔄 手动刷新 Cookies</a>';
+    }
+    html += '</div>';
+
+    ct.innerHTML = html;
+
+    // While refreshing, poll faster (every 3s)
+    if (isRefreshing && !window._ckFastPoll) {
+      window._ckFastPoll = setInterval(loadCookieStatus, 3000);
+    } else if (!isRefreshing && window._ckFastPoll) {
+      clearInterval(window._ckFastPoll);
+      window._ckFastPoll = null;
+    }
+  }).catch(() => {});
+}
+
+async function refreshCookies() {
+  try {
+    // Fire-and-forget — don't wait for the full refresh (can take 30s+)
+    fetch('/api/cookie-refresh', {method:'POST'});
+    // Immediately start fast polling to show spinner
+    loadCookieStatus();
+  } catch(e) { alert('请求失败: ' + e.message); }
+}
+
+loadCookieStatus();
+setInterval(loadCookieStatus, 30000);
 </script>
 """
     return page("GPU 控制", "/gpu", body)

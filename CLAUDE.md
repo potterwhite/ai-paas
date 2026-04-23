@@ -1,49 +1,48 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Claude Code Entry Point — ai-paas
 
-**Before writing any code or config**, read in order:
-
-1. `docs/zh/1-for-ai/guide.md` — rules, commit format, archiving protocol, architecture facts
-2. `docs/zh/1-for-ai/codebase_map.md` — full infrastructure map (do NOT scan files instead)
-3. `docs/zh/2-progress/progress.md` — current phase status
-4. `docs/zh/2-progress/NEED_TO_DO.md` — active task backlog
-
-Do not scan `models/`, `xinference_models/`, or `litellm_data/`. Trust the docs as ground truth.
+Read before touching anything: `docs/zh/1-for-ai/guide.md` → `codebase_map.md` → `progress.md` → `NEED_TO_DO.md`
 
 ---
 
-## ⛔ Hard Rules (non-negotiable)
+## Rules
 
-- All config, comments, commit messages: **English**
-- Communicate with human: **Chinese**
-- **End every response with AskUserQuestion**: After completing a task, answering a question, or providing any information — always end by using the `AskUserQuestion` tool to ask the user what they'd like to do next. Never finish a response with plain text only.
-- Read `NEED_TO_DO.md` at start; ask user if they want you to re-read it before starting
+- Config / comments / commits: **English** · Human comms: **Chinese**
+- Always end response with `AskUserQuestion` tool
+- Never scan `models/`, `xinference_models/`, `litellm_data/`
 
 ---
 
 ## Commands
 
 ```bash
-docker ps && nvidia-smi                      # Container + GPU status
-docker logs -f ai_litellm                    # LiteLLM logs
-cd /home/james/ai-paas && docker compose up -d
-docker compose restart ai_litellm
+docker ps && nvidia-smi
+docker logs -f ai_webapp | ai_router | ai_vllm_qwen
+docker compose build webapp && docker compose up -d webapp
+docker compose up -d
+docker compose restart ai_router
 
-curl -X POST "http://192.168.0.19:4000/v1/chat/completions" \
-  -H "Content-Type: application/json" \
+# Switch vLLM model profile (only one at a time)
+docker compose --profile llm-qwen up -d vllm-qwen
+
+# Test
+curl -X POST http://192.168.0.19:4000/v1/chat/completions \
   -H "Authorization: Bearer sk-1234" \
-  -d '{"model":"qwen","messages":[{"role":"user","content":"hello"}],"max_tokens":10}'
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen","messages":[{"role":"user","content":"hi"}],"max_tokens":10}'
+curl http://192.168.0.19:4000/v1/health
 ```
 
 ---
 
-## Documentation Map
+## Docs & PKB
 
-| Need | File |
+| Need | Path |
 |---|---|
-| Working rules + commit format + archiving | `docs/zh/1-for-ai/guide.md` |
-| Infrastructure map (containers, APIs, VRAM) | `docs/zh/1-for-ai/codebase_map.md` |
-| Phase progress + roadmap | `docs/zh/2-progress/progress.md` |
-| Active task backlog | `docs/zh/2-progress/NEED_TO_DO.md` |
-| Architecture decisions | `docs/zh/3-highlights/architecture_vision.md` |
-| Failed approaches | `docs/zh/3-highlights/archived/` |
-| New member setup | `docs/zh/4-for-beginner/quick_start.md` |
+| Rules + commit format | `docs/zh/1-for-ai/guide.md` |
+| Infrastructure map | `docs/zh/1-for-ai/codebase_map.md` |
+| Active tasks | `docs/zh/2-progress/NEED_TO_DO.md` |
+| PKB deploy logs | `/Development/docker/docker-volumes/syncthing-docker/ObsidianVault/PARA-Vault/2_AREA/10-Area-Artificial_Intelligence/Project_AI_Marketing_Personal/deploy/` |
