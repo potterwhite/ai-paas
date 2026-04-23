@@ -29,13 +29,15 @@
 # Can also be run manually:
 #   docker exec ai_comfyui bash /root/ComfyUI/setup.sh
 #
-# Model groups downloaded (total ~45 GB on first run):
-#   1. Custom nodes     — 4 ComfyUI extensions (git clone)
+# Model groups downloaded (total ~50 GB on first run):
+#   1. Custom nodes     — 5 ComfyUI extensions (git clone)
 #   2. CogVideoX-5B    — ~26 GB  (transformer + VAE + T5-XXL BF16 + T5-XXL fp8)
 #   3. LivePortrait     — ~350 MB (digital human)
 #   4. SD 1.5           — ~4 GB   (image generation)
 #   5. SDXL Base        — ~7 GB   (image generation, higher quality)
 #   6. Workflow sync    — copy built-in workflows to Browse UI
+#   7. (reserved — see step numbering)
+#   8. MuseTalk         — ~4.2 GB (audio-driven lip sync: weights + whisper + vae + dwpose)
 #
 # Each file is verified by SHA-256 checksum after download. Files that already
 # exist AND pass checksum are skipped. Corrupt/partial files are re-downloaded.
@@ -49,7 +51,7 @@ MODELS_BASE="/root/ComfyUI/models"
 NODES_DIR="/root/ComfyUI/custom_nodes"
 
 # Counters for final summary
-TOTAL_STEPS=6
+TOTAL_STEPS=8
 DOWNLOAD_COUNT=0
 SKIP_COUNT=0
 FAIL_COUNT=0
@@ -152,12 +154,14 @@ echo "  Models directory : $(realpath "$MODELS_BASE" 2>/dev/null || echo "$MODEL
 echo "  Nodes directory  : $(realpath "$NODES_DIR" 2>/dev/null || echo "$NODES_DIR")"
 echo "  Total steps      : ${TOTAL_STEPS}"
 echo ""
-echo "  Step 1: Custom nodes          — install 4 ComfyUI extensions"
+echo "  Step 1: Custom nodes          — install 5 ComfyUI extensions"
 echo "  Step 2: CogVideoX-5B          — ~26 GB (transformer + VAE + T5-XXL)"
 echo "  Step 3: LivePortrait           — ~350 MB (digital human models)"
 echo "  Step 4: Stable Diffusion 1.5   — ~4 GB (image generation)"
 echo "  Step 5: SDXL Base 1.0          — ~7 GB (high-quality image generation)"
 echo "  Step 6: Workflow sync          — copy built-in workflows to Browse UI"
+echo "  Step 7: (skipped — reserved numbering)"
+echo "  Step 8: MuseTalk               — ~4.2 GB (audio lip sync: weights + whisper + vae + dwpose)"
 echo ""
 echo "  Existing files with valid checksums will be skipped (no re-download)."
 echo ""
@@ -180,6 +184,9 @@ install_node "ComfyUI-VideoHelperSuite" \
 
 install_node "ComfyUI-AdvancedLivePortrait" \
     "https://github.com/PowerHouseMan/ComfyUI-AdvancedLivePortrait.git"
+
+install_node "ComfyUI-MuseTalk" \
+    "https://github.com/chaojie/ComfyUI-MuseTalk.git"
 
 # Compatibility patch: CogVideoXWrapper's CogVideoXLatentFormat doesn't inherit
 # from ComfyUI's LatentFormat base class and is missing latent_rgb_factors_reshape.
@@ -313,6 +320,44 @@ if [ -d "$WF_SRC" ] && ls "$WF_SRC"/*.json >/dev/null 2>&1; then
 else
     echo "  [skip] No workflow files found in $WF_SRC"
 fi
+
+# ── 7. (reserved) ───────────────────────────────────────────────────────────
+
+step_header 7 "$TOTAL_STEPS" "Reserved — placeholder step"
+echo "  (no action)"
+
+# ── 8. MuseTalk (~4.2 GB) ────────────────────────────────────────────────────
+
+step_header 8 "$TOTAL_STEPS" "MuseTalk — audio-driven lip sync models (~4.2 GB)"
+echo "  Downloads: MuseTalk weights, Whisper tiny, SD-VAE-FT-MSE, DWPose."
+echo "  All placed under: models/diffusers/TMElyralab/MuseTalk/"
+echo ""
+
+MT_DIR="$MODELS_BASE/diffusers/TMElyralab/MuseTalk"
+MT_HF="https://huggingface.co/TMElyralab/MuseTalk/resolve/main"
+
+echo "  ── 8a. MuseTalk UNet weights (~3.4 GB) ──"
+dl_small "$MT_HF/musetalk/musetalk.json" "$MT_DIR/musetalk/musetalk.json"
+dl "$MT_HF/musetalk/pytorch_model.bin" \
+   "$MT_DIR/musetalk/pytorch_model.bin" \
+   "MuseTalk UNet weights (~3.4 GB)"
+
+echo "  ── 8b. Whisper tiny (~72 MB) ──"
+dl "https://huggingface.co/openai/whisper-tiny/resolve/main/pytorch_model.bin" \
+   "$MT_DIR/whisper/tiny.pt" \
+   "Whisper tiny (~72 MB)"
+
+echo "  ── 8c. SD-VAE-FT-MSE (~335 MB) ──"
+dl_small "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json" \
+   "$MT_DIR/sd-vae-ft-mse/config.json"
+dl "https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.bin" \
+   "$MT_DIR/sd-vae-ft-mse/diffusion_pytorch_model.bin" \
+   "SD-VAE-FT-MSE weights (~335 MB)"
+
+echo "  ── 8d. DWPose (~407 MB) ──"
+dl "https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.pth" \
+   "$MT_DIR/dwpose/dw-ll_ucoco_384.pth" \
+   "DWPose dw-ll_ucoco_384 (~407 MB)"
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 
