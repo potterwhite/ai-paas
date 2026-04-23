@@ -9,6 +9,10 @@ data/comfyui_workdir/
 data/comfyui_input/
 data/comfyui_output/
 data/xinference_models/
+data/chrome-profile/
+data/cookies/
+data/router_db/
+data/router_redis/
 
 # Whitelisted: pre-bundled ComfyUI config (workflows, model paths) — git-tracked
 # data/comfyui_workflows/   ← tracked (all *.json, *.png, *.jpg, *.mp4)
