@@ -13,46 +13,18 @@
 
 - **MCP/Skills 集成**：将 MCP server 对接到 vLLM 的 tool calling 能力（`--enable-auto-tool-choice --tool-call-parser hermes`），使 OpenClaw 能使用外部工具
 
+---
+
 ### 待解决问题
 
-- [ ] **MuseTalk 安装卡点**：`mmcv._ext` C++ extension 在 mmcv-lite 中不存在，导致 ComfyUI-MuseTalk 节点 import 失败。所有 Python 层 patch 已完成（chumpy/mmcv/xtcocotools/mmdet/mmpose），唯一剩余问题是 mmcv 的 CUDA C++ ops。详见 PKB: `plan-DEPLOY-musetalk-installation.md`。用户将自行处理。
+- [ ] **MuseTalk mmcv._ext 卡点**（用户自行处理）：ComfyUI-MuseTalk 节点 import 时需要 mmcv C++ CUDA extension，mmcv-lite 不含，容器内无 nvcc 无法编译。所有 Python 层 patch 已完成并固化到 setup.sh。详见 PKB: `plan-DEPLOY-musetalk-installation.md`
 
-- **yt-dlp cookies 续期** ✅ 已实现并部署验证：`ai_cookie_manager` sidecar 容器（Playwright + noVNC），自动每 6 小时刷新。容器运行中，已自动刷新 2 次，health API 返回 healthy。
-  - 启动：`docker compose --profile cookies up -d`
-  - 首次登录：`http://localhost:6901`（noVNC → YouTube 登录）
-  - 健康检查：`curl http://localhost:6902/health`
+- [ ] **目录选择器懒加载**：`http://192.168.0.19:8888/download` 目录选择器一次性全扫 300 条 cap 导致 tv 等目录被截断消失。需改为先显示 lv1 顶层目录，点击展开再加载子目录。
 
-### 多模型支持后续
-
-- [ ] Gemma 4 26B A4B AWQ 量化：对 `/models/gemma-4-26B-A4B/`（BF16 ~50GB）做 AWQ 4-bit 量化，输出到 `/models/gemma-4-26B-A4B-awq/`，然后创建 vllm-gemma 容器并测试切换
+- [ ] **Whisper 替代模型**：将 [此文章](https://mp.weixin.qq.com/s/yqR1bC72Cvh1tjPD0eP6rw) 的模型集成为 Whisper 替代，前端页面支持选择使用 Whisper 或新模型。
 
 ---
 
-### Phase 4 补完
+### 多模型支持后续
 
-（无 — Phase 4 补完已完成并归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-07.md`）
-
-（2026-04-09 全链路修复已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-09.md`）
-
-（2026-04-09 MODELS_PATH 根因修复 + 硬编码路径清理已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-09.md`）
-
-（2026-04-12 release-please + license header + comfyUI 工作流浏览器等已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
-
-（2026-04-13 ComfyUI 工作流导入修复 + 内置工作流原生浏览已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
-
-### paas-controller.sh 改进
-
-（2026-04-13 `prepare` 下载 UX 全面改进已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
-
-（2026-04-13 CogVideoX latent_rgb_factors_reshape 修复已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
-
-
-- [ ] http://192.168.0.19:8888/download 目录选择器懒加载：先显示lv1顶层目录，点击展开再显示子目录。当前一次性全扫300条cap导致tv等目录被截断消失。
-
-- [ ] CogVideoX I2V workflow AssertionError: Image condition latents required for I2V models（进行中修复中）
-
-
-- [ ] 把这个文章里的模型加载下来“https://mp.weixin.qq.com/s/yqR1bC72Cvh1tjPD0eP6rw”
-  然后作为whisper的替代
-  然后在前端页面让我可以选择是用whisper或xx模型。
-  
+- [ ] **Gemma 4 26B AWQ 量化**：对 `/models/gemma-4-26B-A4B/`（BF16 ~50GB）做 AWQ 4-bit 量化，输出到 `/models/gemma-4-26B-A4B-awq/`，然后创建 vllm-gemma 容器并测试切换
