@@ -85,6 +85,9 @@ main() {
             shift
             prepare "$@"
             ;;
+        rebuild-comfyui)
+            rebuild_comfyui
+            ;;
         fix-permissions)
             fix_permissions
             ;;

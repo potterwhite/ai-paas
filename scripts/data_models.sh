@@ -179,14 +179,16 @@ prepare_comfyui() {
     echo "  Host models dir : $(realpath "${MODELS_DIR}/comfyui" 2>/dev/null || echo "${MODELS_DIR}/comfyui")"
     echo ""
     echo "  Model groups to download:"
-    echo "    1. Custom nodes          — 4 ComfyUI extensions"
+    echo "    1. Custom nodes          — 5 ComfyUI extensions (incl. MuseTalk)"
     echo "    2. CogVideoX-5B          — ~26 GB (transformer + VAE + T5-XXL)"
     echo "    3. LivePortrait           — ~350 MB (digital human)"
     echo "    4. Stable Diffusion 1.5   — ~4 GB"
     echo "    5. SDXL Base 1.0          — ~7 GB"
     echo "    6. Workflow sync          — copy to Browse UI"
+    echo "    7. (reserved)"
+    echo "    8. MuseTalk               — ~4.2 GB (UNet + Whisper + SD-VAE + DWPose)"
     echo ""
-    echo "  Total  : ~45 GB — existing files with valid checksums are skipped"
+    echo "  Total  : ~50 GB — existing files with valid checksums are skipped"
     echo ""
 
     if ! confirm "Proceed with download?"; then
@@ -464,4 +466,51 @@ cleanall() {
 
     log_info "Full cleanup complete."
     log_warn "Please re-download required models before starting services again."
+}
+
+# Rebuild ComfyUI from scratch: wipe workdir → restart container → run setup.sh
+# Preserves: models (skipped if checksums pass), git-tracked workflows & yaml
+# Destroys:  comfyui_workdir (custom nodes, ComfyUI state), generated media
+rebuild_comfyui() {
+    check_dir
+
+    echo ""
+    log_warn "REBUILD ComfyUI — this will:"
+    echo "  WIPE  : data/comfyui_workdir/  (custom nodes, ComfyUI internal state)"
+    echo "  KEEP  : models/comfyui/        (model weights — skipped if checksums pass)"
+    echo "  KEEP  : data/comfyui_workflows/ (git-tracked workflow JSONs and media)"
+    echo "  KEEP  : data/comfyui_extra_model_paths.yaml"
+    echo ""
+    echo "  After wipe, setup.sh runs inside the container to:"
+    echo "    - Re-clone all 5 custom nodes (ComfyUI-MuseTalk etc.)"
+    echo "    - Download any missing models (~50 GB total, skips existing)"
+    echo ""
+
+    if ! confirm "Proceed with ComfyUI rebuild?"; then
+        log_info "Rebuild cancelled."
+        return 0
+    fi
+
+    # Step 1: Stop ComfyUI container
+    log_info "Stopping ComfyUI container..."
+    cd "${SCRIPT_DIR}"
+    docker compose -f "${DOCKER_COMPOSE_FILE}" --profile comfyui stop comfyui 2>/dev/null || true
+    if docker ps -a --format "{{.Names}}" | grep -q "^ai_comfyui$"; then
+        docker rm ai_comfyui 2>/dev/null || true
+    fi
+
+    # Step 2: Wipe comfyui_workdir (custom nodes + ComfyUI state)
+    local workdir="${DATA_DIR}/comfyui_workdir"
+    if [[ -d "$workdir" ]]; then
+        log_info "Wiping comfyui_workdir (fixing permissions first)..."
+        fix_permissions "$workdir"
+        rm -rf "${workdir:?}"
+        log_info "comfyui_workdir wiped."
+    fi
+    mkdir -p "$workdir"
+
+    # Step 3: Re-run prepare_comfyui (starts container + runs setup.sh)
+    echo ""
+    log_info "Launching container and running setup.sh..."
+    prepare_comfyui
 }

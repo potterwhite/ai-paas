@@ -104,14 +104,18 @@ Commands:
     clean-models     Interactive model cleanup (selective delete)
     cleanall         Full cleanup: stops services, cleans data AND all models
 
-   System Maintenance:
-     fix-permissions  Fix ownership/permissions on directories (default: data/)
-     reset-router     Reset router database and Redis only
-     prepare          Download/manage models for ComfyUI or vLLM
-                      Usage: prepare [comfyui|vllm]
-                        comfyui  Download ComfyUI preset models (~40 GB) via container setup.sh
-                        vllm     Show configured model, list available models, switch instructions
-     help             Show this help message
+  System Maintenance:
+    fix-permissions  Fix ownership/permissions on directories (default: data/)
+    reset-router     Reset router database and Redis only
+    prepare          Download/manage models for ComfyUI or vLLM
+                     Usage: prepare [comfyui|vllm]
+                       comfyui  Download ComfyUI preset models (~50 GB) via container setup.sh
+                       vllm     Show configured model, list available models, switch instructions
+    rebuild-comfyui  Full ComfyUI rebuild from scratch:
+                     wipes comfyui_workdir, re-clones all custom nodes (incl. MuseTalk),
+                     re-runs setup.sh. Preserves model weights and git-tracked workflows.
+                     Use this after updating setup.sh or when nodes are broken.
+    help             Show this help message
 
 Examples:
     $0 status                  # Check which containers are running
@@ -119,9 +123,10 @@ Examples:
     $0 logs all                # Show logs from all containers sequentially
     $0 check-deps              # Verify all dependencies are ready
     $0 cleanall                # Full cleanup (data + models)
-    $0 prepare comfyui         # Download ComfyUI preset models (~40 GB)
+    $0 prepare comfyui         # Download ComfyUI preset models (~50 GB)
     $0 prepare vllm            # Show vLLM model info and switch instructions
     $0 clean-data              # Clean runtime data only
+    $0 rebuild-comfyui         # Wipe workdir + re-clone nodes + re-run setup.sh
 
 Auto-Completion:
     To enable bash auto-completion, source the completion script:
