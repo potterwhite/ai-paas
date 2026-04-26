@@ -297,6 +297,33 @@ services:
       timeout: 10s
       retries: 3
 
+  # ============================================================
+  # 9. Vault RAG — Obsidian knowledge base AI query (Phase 6)
+  #    FastAPI + ChromaDB + BGE embedding + vLLM
+  #    Ports: 8081 (RAG API)
+  # ============================================================
+  rag:
+    build: ./services/rag
+    container_name: ai_rag
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - ${VAULT_PATH:-./vault}:/vault:ro
+      - ./data/rag_chroma:/db/chroma
+      - ${MODELS_PATH:-./models}:/models:ro
+    environment:
+      - RAG_PORT=8081
+      - CHROMA_DB_PATH=/db/chroma
+      - EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+      - VAULT_PATH=/vault
+      - ROUTER_BASE_URL=http://ai_router:4000
+      - ROUTER_API_KEY=${LITELLM_MASTER_KEY:-sk-change-me}
+    depends_on:
+      - router
+    networks:
+      - default
+
 networks:
   default:
     external: true
