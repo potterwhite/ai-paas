@@ -6,7 +6,7 @@
 >
 > **维护规则：** 任何 AI Agent 修改了本文档中列出的文件，必须在同一个 commit/会话中更新本文档对应章节。
 >
-> 最后更新：2026-04-09（多模型 vLLM 支持完成；Docker Compose profiles + Router 多模型切换引擎）
+> 最后更新：2026-04-26（Phase 6: Vault RAG 开始实现）
 >
 
 ---

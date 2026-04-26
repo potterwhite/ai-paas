@@ -1,7 +1,7 @@
 # Vault RAG — Obsidian 知识库 AI 查询系统
 
-> **Status:** Design Draft — implementation TBD
-> **Phase:** TBD (consider as Phase 6)
+> **Status:** Phase 1 Implementation Started — 2026-04-26
+> **Phase:** Phase 6 (Vault RAG)
 > **Author:** Claude Code
 
 ---
@@ -177,7 +177,8 @@ Response:
 | `bge-small-zh-v1.5` | ~70MB | 推荐：体积小、中文效果好 |
 | `m3e-base` | ~400MB | 更精确，但更大 |
 
-- 使用本地部署（`ollama` 或 HuggingFace Transformers）
+- 使用本地部署（`sentence-transformers`）
+- **模型存储**：`${MODELS_PATH}/embedding/`（与 vLLM 模型同 HDD）
 - GPU 资源充足时在 RAG 容器内运行
 - 资源不足时可调用云端 API
 
@@ -187,6 +188,8 @@ Response:
 |------|------|
 | **ChromaDB** | 推荐：轻量、支持本地、内置 SQLite 后端 |
 | Qdrant | 更强大，但需要额外容器 |
+
+- **持久化存储**：`./data/rag_chroma`（NVMe，与 router_db 同一位置）
 
 ---
 
@@ -294,14 +297,15 @@ rag:
   container_name: ai_rag
   restart: unless-stopped
   ports:
-    - "xxxx:8000"
+    - "8081:8081"
   volumes:
     - ${VAULT_PATH:-./vault}:/vault:ro
-    - ./data/rag_db:/db
+    - ./data/rag_chroma:/db/chroma
+    - ${MODELS_PATH:-./models}:/models:ro
   environment:
-    - RAG_PORT=8000
+    - RAG_PORT=8081
     - CHROMA_DB_PATH=/db/chroma
-    - EMBEDDING_MODEL=bge-small-zh-v1.5
+    - EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
     - VAULT_PATH=/vault
     - ROUTER_BASE_URL=http://ai_router:4000
     - ROUTER_API_KEY=${ROUTER_API_KEY}
@@ -315,8 +319,9 @@ rag:
 
 ```bash
 # .env 新增
-VAULT_PATH=/Development/docker/docker-volumes/syncthing-docker/ObsidianVault/
+VAULT_PATH=/Development/backup/PARA-Vault
 RAG_PORT=8081
+MODELS_PATH=/Development/docker/docker-volumes/ai_paas
 ```
 
 ---

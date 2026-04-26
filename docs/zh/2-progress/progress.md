@@ -16,6 +16,7 @@
 | **Phase 3** | 视觉生成 & 数字人 — ComfyUI + 显存切换 | ✅ 完成 | [phases/phase3/plan.md](phases/phase3/plan.md) · [English](../../en/2-progress/phases/phase3/plan.md) |
 | **Phase 4** | GPU Router / Orchestrator — 统一入口、GPU 独占调度、替代 LiteLLM、多模型切换 | ✅ 完成 | [phases/phase4/plan.md](phases/phase4/plan.md) · [English](../../en/2-progress/phases/phase4/plan.md) |
 | **Phase 5** | SynapseERP 集成 — Agent-First ERP，ai-paas 作为基础设施层 | ⏳ 规划中 | [phases/phase5/plan.md](phases/phase5/plan.md) · [English](../../en/2-progress/phases/phase5/plan.md) |
+| **Phase 6** | Vault RAG — Obsidian 知识库 AI 查询系统 | 🔄 实现中 | [vault_rag_design.md](../3-highlights/vault_rag_design.md) |
 
 **当前状态：** Phase 4 完成（4.1-4.6 + 多模型支持）。Phase 5 为远期规划（SynapseERP 业务层调用 ai-paas 基础设施）。
 2026-04-05：Phase 4 架构设计完成，Phase 3 时分调度方案归档（[详情](../../en/3-highlights/archived/phase3_manual_gpu_switch_archived.md)）。
