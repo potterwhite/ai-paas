@@ -124,6 +124,17 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
 - 端口：不暴露到宿主机
 - 用途：Celery broker + result backend
 
+**服务：`rag`（容器：`ai_rag`）— Phase 6**
+- 镜像：本地构建（`services/rag/`）
+- 端口：`8081:8081`
+- 技术：FastAPI + ChromaDB + BGE embedding
+- 核心功能：
+  - `/v1/vault/query` — 查询 Vault + LLM 生成回答
+  - `/v1/vault/write` — 写回 Vault（新建/追加）
+  - `/v1/vault/index/rebuild` — 重建索引
+- 依赖：Router（调用 LLM）、Vault volume、ChromaDB volume
+- 环境：见 `docker-compose.yml` rag service
+
 ---
 
 ### API 接口
@@ -177,6 +188,14 @@ Body: {"model": "/models/qwen2.5-32b-instruct-awq", "messages": [...]}
 ```
 > 注意：端口 9997 映射到当前活跃的 vLLM 容器（ai_vllm_qwen 或 ai_vllm_gemma）。
 
+### Vault RAG（ai_rag :8081）
+```
+POST http://192.168.0.19:8081/v1/vault/query     → 查询 Vault + LLM 回答
+POST http://192.168.0.19:8081/v1/vault/write     → 写回 Vault
+POST http://192.168.0.19:8081/v1/vault/index/rebuild → 重建索引
+GET  http://192.168.0.19:8081/v1/health          → 健康检查
+```
+
 ### OpenClaw 专用配置
 ```
 API Base URL:  http://192.168.0.19:4000/v1
@@ -198,6 +217,7 @@ Model Name:    qwen
 | `ai_router` | 本地构建 | ✅ 运行中 | GPU Router / 多模型编排 |
 | `ai_router_redis` | `redis:7-alpine` | ✅ 运行中 | Celery broker + cache |
 | `ai_router_worker` | 本地构建 | ✅ 运行中 | Celery 异步任务 |
+| `ai_rag` | 本地构建 | ⏸ 停止（Phase 6 新建） | Vault RAG / 知识库查询 |
 
 ---
 
@@ -222,3 +242,12 @@ Model Name:    qwen
 | ComfyUI 模型 | `models/comfyui/` | ~31 GB | ⏸ ComfyUI 专用 |
 
 **模型存储路径：** 由 `.env` 中 `MODELS_PATH` 控制（默认 `./models`，当前指向 `/Development/docker/docker-volumes/ai_paas`）。
+
+## 运行时数据目录
+
+| 目录 | 位置 | 用途 |
+|------|------|------|
+| `router_db` | `./data/router_db` | Router SQLite 数据库 |
+| `router_redis` | `./data/router_redis` | Redis 持久化数据 |
+| `rag_chroma` | `./data/rag_chroma` | ChromaDB 向量索引 |
+| `comfyui_workdir` | `./data/comfyui_workdir` | ComfyUI 状态 |
