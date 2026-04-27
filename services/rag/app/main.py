@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 
 from app.config import settings
-from app.rag_engine import search_vault, index_vault
+from app.rag_engine import search_vault, index_vault, get_index_status
 from app.vault_writer import write_to_vault
 
 
@@ -56,6 +56,12 @@ class IndexResponse(BaseModel):
     documents_indexed: int
 
 
+class IndexStatusResponse(BaseModel):
+    indexed_documents: int
+    status: str
+    error: Optional[str] = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print(f"RAG service starting on port {settings.RAG_PORT}")
@@ -76,7 +82,13 @@ app = FastAPI(
 @app.get("/v1/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "vault-rag"}
+    index_status = get_index_status()
+    return {
+        "status": "healthy",
+        "service": "vault-rag",
+        "vault_path": settings.VAULT_PATH,
+        "indexed_documents": index_status.get("indexed_documents", 0),
+    }
 
 
 @app.post("/v1/vault/query", response_model=QueryResponse)
@@ -176,6 +188,12 @@ async def rebuild_index(
         status="completed",
         documents_indexed=result.get("indexed", 0),
     )
+
+
+@app.get("/v1/vault/index/status", response_model=IndexStatusResponse)
+async def get_index_status_endpoint(api_key: str = Depends(verify_api_key)):
+    """Get the current index status."""
+    return get_index_status()
 
 
 if __name__ == "__main__":

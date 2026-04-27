@@ -1,6 +1,6 @@
 # Vault RAG — Obsidian 知识库 AI 查询系统
 
-> **Status:** Phase 1 Completed — 2026-04-27
+> **Status:** Phase 2 Completed — 2026-04-27
 > **Phase:** Phase 6 (Vault RAG)
 > **Author:** Claude Code
 
@@ -388,9 +388,9 @@ MODELS_PATH=/Development/docker/docker-volumes/ai_paas
 
 ### 8.2 Phase 2：索引管理
 
-- [ ] `POST /v1/vault/index/rebuild`
-- [ ] 自动增量索引
-- [ ] 健康检查端点
+- [x] `POST /v1/vault/index/rebuild`
+- [x] 自动增量索引
+- [x] 健康检查端点
 
 ### 8.3 Phase 3：RBAC 权限（预留）
 

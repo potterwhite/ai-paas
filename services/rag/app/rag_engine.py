@@ -196,6 +196,23 @@ class RAGEngine:
 rag_engine = RAGEngine()
 
 
+def get_index_status() -> dict:
+    """Get the current index status."""
+    try:
+        rag_engine._init_chroma()
+        count = rag_engine.collection.count() if rag_engine.collection else 0
+        return {
+            "indexed_documents": count,
+            "status": "ready",
+        }
+    except Exception as e:
+        return {
+            "indexed_documents": 0,
+            "status": "error",
+            "error": str(e),
+        }
+
+
 async def index_vault(force: bool = False) -> dict:
     """Index the Vault (exported function)."""
     return await rag_engine.index_vault(force=force)
