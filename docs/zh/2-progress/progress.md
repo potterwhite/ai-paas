@@ -1,6 +1,6 @@
 # ai-paas — 进度索引
 
-> 最后更新：2026-04-02
+> 最后更新：2026-04-27
 > **英文版：** [English →](../../en/2-progress/progress.md)
 
 本文件是导航索引。每个 Phase 有独立的计划文件，包含完整步骤记录、架构决策和配置值。
@@ -15,10 +15,25 @@
 | **Phase 2** | 音视频翻译 — Whisper + Web UI（字幕/翻译/GPU面板）| ✅ 完成 | [phases/phase2/plan.md](phases/phase2/plan.md) · [English](../../en/2-progress/phases/phase2/plan.md) |
 | **Phase 3** | 视觉生成 & 数字人 — ComfyUI + 显存切换 | ✅ 完成 | [phases/phase3/plan.md](phases/phase3/plan.md) · [English](../../en/2-progress/phases/phase3/plan.md) |
 | **Phase 4** | GPU Router / Orchestrator — 统一入口、GPU 独占调度、替代 LiteLLM、多模型切换 | ✅ 完成 | [phases/phase4/plan.md](phases/phase4/plan.md) · [English](../../en/2-progress/phases/phase4/plan.md) |
-| **Phase 5** | SynapseERP 集成 — Agent-First ERP，ai-paas 作为基础设施层 | ⏳ 规划中 | [phases/phase5/plan.md](phases/phase5/plan.md) · [English](../../en/2-progress/phases/phase5/plan.md) |
-| **Phase 6** | Vault RAG — Obsidian 知识库 AI 查询系统 | 🔄 实现中 | [vault_rag_design.md](../3-highlights/vault_rag_design.md) |
 
-**当前状态：** Phase 4 完成（4.1-4.6 + 多模型支持）。Phase 5 为远期规划（SynapseERP 业务层调用 ai-paas 基础设施）。
+---
+
+## Phase 6 Vault RAG 提交记录（已完成）
+
+| 步骤 | 描述 | Commit |
+|---|---|---|
+| 6.1 | 设计文档 + 架构设计 | `0adec10` |
+| 6.2 | 添加 rag 服务到 docker-compose | `4dd1fb7` |
+| 6.3 | rag Dockerfile | `a101381` |
+| 6.4 | main.py — FastAPI 入口 + /v1/vault/* 路由 | `fa73d67` |
+| 6.5 | vault_writer.py — 写 AI 内容回 Vault | `68f7140` |
+| 6.6 | config.py + embedding.py + requirements.txt | `fe875bc` |
+| 6.7 | Phase 1 完成：ChromaDB 索引 (1754 文档)、vLLM 集成、端到端测试 | `fe875bc` |
+| 6.8 | .gitignore 更新：忽略 rag_chroma 数据 | `0c5dcea` |
+| **Phase 5** | SynapseERP 集成 — Agent-First ERP，ai-paas 作为基础设施层 | ⏳ 规划中 | [phases/phase5/plan.md](phases/phase5/plan.md) · [English](../../en/2-progress/phases/phase5/plan.md) |
+| **Phase 6** | Vault RAG — Obsidian 知识库 AI 查询系统 | ✅ 完成 | [vault_rag_design.md](../3-highlights/vault_rag_design.md) |
+
+**当前状态：** Phase 6 完成（Vault RAG）。Phase 5 为远期规划（SynapseERP 业务层调用 ai-paas 基础设施）。
 2026-04-05：Phase 4 架构设计完成，Phase 3 时分调度方案归档（[详情](../../en/3-highlights/archived/phase3_manual_gpu_switch_archived.md)）。
 2026-04-09：多模型 vLLM 支持完成 — Docker Compose profiles + Router 多模型切换 + Webapp UI。
 
