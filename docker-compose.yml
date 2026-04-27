@@ -309,7 +309,7 @@ services:
     ports:
       - "8081:8081"
     volumes:
-      - /Development/backup/PARA-Vault:/vault:ro
+      - ${VAULT_PATH:-/Development/backup/PARA-Vault}:/vault:ro
       - ./data/rag_chroma:/db/chroma
       - ${MODELS_PATH:-./models}:/models:ro
     environment:
