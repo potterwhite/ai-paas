@@ -164,7 +164,7 @@ class RAGEngine:
             "collection_count": self.collection.count(),
         }
 
-    def search(self, query: str, top_k: int = 5, user_loa: int = 1) -> list[SearchResult]:
+    def search(self, query: str, top_k: int = 10, user_loa: int = 1) -> list[SearchResult]:
         """Search Vault notes by query with LOA filtering."""
         self._init_chroma()
 
@@ -177,6 +177,7 @@ class RAGEngine:
         )
 
         search_results = []
+        allowed_loa = user_loa
         if results["ids"] and results["ids"][0]:
             for i, doc_id in enumerate(results["ids"][0]):
                 metadata = results["metadatas"][0][i]
@@ -184,7 +185,7 @@ class RAGEngine:
                 distance = results["distances"][0][i]
 
                 doc_loa_min = metadata.get("loa_min", 1)
-                if doc_loa_min > user_loa:
+                if doc_loa_min > allowed_loa:
                     continue
 
                 relevance = 1 - distance
@@ -232,6 +233,6 @@ async def index_vault(force: bool = False) -> dict:
     return await rag_engine.index_vault(force=force)
 
 
-def search_vault(query: str, top_k: int = 5, user_loa: int = 1) -> list[SearchResult]:
+def search_vault(query: str, top_k: int = 10, user_loa: int = 1) -> list[SearchResult]:
     """Search the Vault (exported function)."""
     return rag_engine.search(query, top_k=top_k, user_loa=user_loa)

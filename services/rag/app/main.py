@@ -31,7 +31,7 @@ async def verify_api_key(authorization: Optional[str] = Header(None)) -> APIKeyI
 
 class QueryRequest(BaseModel):
     query: str
-    top_k: int = 5
+    top_k: int = 10
     loa_required: Optional[int] = None
 
 
@@ -123,14 +123,20 @@ async def query_vault(
         })
 
     context = "\n\n".join(context_parts)
-    prompt = f"""基于以下笔记内容回答用户问题。
+    prompt = f"""请仔细阅读以下笔记内容，然后回答用户问题。
+
+【重要指示】
+1. 尽可能详细地提取和总结相关信息
+2. 如果问的是进度/计划，列出具体的任务、项目、周次等
+3. 如果问的是日期相关的（如某周、某月），找出对应的周报/月报文件
+4. 格式要清晰，使用标题和列表
 
 用户问题：{request.query}
 
 相关笔记：
 {context}
 
-请根据以上笔记内容回答。如果笔记中没有相关信息，请如实说明。"""
+请基于以上笔记内容回答。如果笔记中提到了相关内容，请详细列出；只有确实找不到时才说"没找到"。"""
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -145,7 +151,7 @@ async def query_vault(
                     "messages": [
                         {"role": "user", "content": prompt}
                     ],
-                    "max_tokens": 1000,
+                    "max_tokens": 2000,
                 },
             )
             response.raise_for_status()
