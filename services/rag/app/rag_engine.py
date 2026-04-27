@@ -78,8 +78,11 @@ class RAGEngine:
 
             if key in ("tags", "aliases"):
                 frontmatter[key] = [t.strip().strip("-").strip() for t in value.split(",")]
-            elif key in ("title",):
-                frontmatter[key] = value
+            elif key in ("title", "loa_min"):
+                try:
+                    frontmatter[key] = int(value)
+                except ValueError:
+                    frontmatter[key] = value
             else:
                 frontmatter[key] = value
 
@@ -133,6 +136,7 @@ class RAGEngine:
             frontmatter, body = self._extract_frontmatter(content)
             title = self._extract_title(content, md_file.name)
             tags = frontmatter.get("tags", [])
+            loa_min = frontmatter.get("loa_min", 1)
             mtime = md_file.stat().st_mtime
 
             documents.append(body)
@@ -141,6 +145,7 @@ class RAGEngine:
                 "path": rel_path,
                 "title": title,
                 "tags": ",".join(tags) if tags else "",
+                "loa_min": loa_min,
                 "mtime": mtime,
             })
 
@@ -159,15 +164,15 @@ class RAGEngine:
             "collection_count": self.collection.count(),
         }
 
-    def search(self, query: str, top_k: int = 5) -> list[SearchResult]:
-        """Search Vault notes by query."""
+    def search(self, query: str, top_k: int = 5, user_loa: int = 1) -> list[SearchResult]:
+        """Search Vault notes by query with LOA filtering."""
         self._init_chroma()
 
         query_embedding = get_embedding(query)
 
         results = self.collection.query(
             query_embeddings=[query_embedding],
-            n_results=top_k,
+            n_results=top_k * 3,
             include=["documents", "metadatas", "distances"],
         )
 
@@ -177,6 +182,10 @@ class RAGEngine:
                 metadata = results["metadatas"][0][i]
                 document = results["documents"][0][i]
                 distance = results["distances"][0][i]
+
+                doc_loa_min = metadata.get("loa_min", 1)
+                if doc_loa_min > user_loa:
+                    continue
 
                 relevance = 1 - distance
 
@@ -189,6 +198,11 @@ class RAGEngine:
                     relevance=round(relevance, 3),
                     snippet=snippet,
                 ))
+
+                if len(search_results) >= top_k:
+                    break
+
+        return search_results
 
         return search_results
 
@@ -218,6 +232,6 @@ async def index_vault(force: bool = False) -> dict:
     return await rag_engine.index_vault(force=force)
 
 
-def search_vault(query: str, top_k: int = 5) -> list[SearchResult]:
+def search_vault(query: str, top_k: int = 5, user_loa: int = 1) -> list[SearchResult]:
     """Search the Vault (exported function)."""
-    return rag_engine.search(query, top_k=top_k)
+    return rag_engine.search(query, top_k=top_k, user_loa=user_loa)

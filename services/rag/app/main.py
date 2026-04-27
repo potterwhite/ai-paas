@@ -7,12 +7,12 @@ import httpx
 from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 
-from app.config import settings
+from app.config import settings, APIKeyInfo
 from app.rag_engine import search_vault, index_vault, get_index_status
 from app.vault_writer import write_to_vault
 
 
-async def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
+async def verify_api_key(authorization: Optional[str] = Header(None)) -> APIKeyInfo:
     """Verify API key from Authorization header."""
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
@@ -22,16 +22,22 @@ async def verify_api_key(authorization: Optional[str] = Header(None)) -> str:
 
     token = authorization[7:]
 
-    if token not in settings.API_KEYS:
+    api_key_info = settings.get_api_key(token)
+    if not api_key_info:
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    return token
+    return api_key_info
 
 
 class QueryRequest(BaseModel):
     query: str
     top_k: int = 5
     loa_required: Optional[int] = None
+
+
+def get_current_loa(api_key: APIKeyInfo) -> int:
+    """Get LOA level from API key."""
+    return api_key.loa_level
 
 
 class QueryResponse(BaseModel):
@@ -94,10 +100,11 @@ async def health_check():
 @app.post("/v1/vault/query", response_model=QueryResponse)
 async def query_vault(
     request: QueryRequest,
-    api_key: str = Depends(verify_api_key),
+    api_key: APIKeyInfo = Depends(verify_api_key),
 ):
     """Query Vault notes and generate answer via LLM."""
-    results = search_vault(request.query, top_k=request.top_k)
+    user_loa = get_current_loa(api_key)
+    results = search_vault(request.query, top_k=request.top_k, user_loa=user_loa)
 
     if not results:
         return QueryResponse(
@@ -156,13 +163,14 @@ async def query_vault(
 @app.post("/v1/vault/write", response_model=WriteResponse)
 async def write_to_vault_endpoint(
     request: WriteRequest,
-    api_key: str = Depends(verify_api_key),
+    api_key: APIKeyInfo = Depends(verify_api_key),
 ):
     """Write AI content back to Vault."""
     if request.mode not in ("new", "append"):
         raise HTTPException(status_code=400, detail="mode must be 'new' or 'append'")
 
-    search_results = search_vault(request.query, top_k=3)
+    user_loa = get_current_loa(api_key)
+    search_results = search_vault(request.query, top_k=3, user_loa=user_loa)
     source_docs = [r.path for r in search_results]
 
     result = await write_to_vault(
@@ -179,7 +187,7 @@ async def write_to_vault_endpoint(
 @app.post("/v1/vault/index/rebuild", response_model=IndexResponse)
 async def rebuild_index(
     force: bool = False,
-    api_key: str = Depends(verify_api_key),
+    api_key: APIKeyInfo = Depends(verify_api_key),
 ):
     """Rebuild the Vault index."""
     result = await index_vault(force=force)
@@ -191,7 +199,7 @@ async def rebuild_index(
 
 
 @app.get("/v1/vault/index/status", response_model=IndexStatusResponse)
-async def get_index_status_endpoint(api_key: str = Depends(verify_api_key)):
+async def get_index_status_endpoint(api_key: APIKeyInfo = Depends(verify_api_key)):
     """Get the current index status."""
     return get_index_status()
 

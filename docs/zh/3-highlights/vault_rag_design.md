@@ -1,6 +1,6 @@
 # Vault RAG — Obsidian 知识库 AI 查询系统
 
-> **Status:** Phase 2 Completed — 2026-04-27
+> **Status:** Phase 3 Completed — 2026-04-27
 > **Phase:** Phase 6 (Vault RAG)
 > **Author:** Claude Code
 
@@ -394,9 +394,9 @@ MODELS_PATH=/Development/docker/docker-volumes/ai_paas
 
 ### 8.3 Phase 3：RBAC 权限（预留）
 
-- [ ] 添加 `loa_min` frontmatter 解析
-- [ ] 扩展 `vault_api_keys` 表
-- [ ] 实现权限过滤逻辑
+- [x] 添加 `loa_min` frontmatter 解析
+- [x] 扩展 `vault_api_keys` 表
+- [x] 实现权限过滤逻辑
 - [ ] 管理 API（LOA 配置）
 
 ---

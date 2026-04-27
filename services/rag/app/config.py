@@ -3,9 +3,16 @@
 import os
 from pathlib import Path
 from typing import Optional
-
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
+
+
+class APIKeyInfo(BaseModel):
+    """API key with LOA level."""
+    key: str
+    name: str
+    loa_level: int = 1
+    quota_daily: int = 100
 
 
 class Settings(BaseSettings):
@@ -53,11 +60,18 @@ class Settings(BaseSettings):
         description="ChromaDB collection name",
     )
 
-    # API
-    API_KEYS: list[str] = Field(
-        default_factory=lambda: ["sk-rag-default"],
-        description="Allowed API keys for RAG service",
+    # API keys (with LOA levels for RBAC)
+    API_KEYS: list[APIKeyInfo] = Field(
+        default_factory=lambda: [APIKeyInfo(key="sk-rag-default", name="default", loa_level=1)],
+        description="Allowed API keys with LOA levels",
     )
+
+    def get_api_key(self, token: str) -> Optional[APIKeyInfo]:
+        """Get API key info by token."""
+        for api_key in self.API_KEYS:
+            if api_key.key == token:
+                return api_key
+        return None
 
     class Config:
         env_file = ".env"
