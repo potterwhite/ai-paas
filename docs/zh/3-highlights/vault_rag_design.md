@@ -1,6 +1,6 @@
 # Vault RAG — Obsidian 知识库 AI 查询系统
 
-> **Status:** Phase 1 Implementation Started — 2026-04-26
+> **Status:** Phase 1 Completed — 2026-04-27
 > **Phase:** Phase 6 (Vault RAG)
 > **Author:** Claude Code
 
@@ -379,12 +379,12 @@ MODELS_PATH=/Development/docker/docker-volumes/ai_paas
 
 ### 8.1 Phase 1：基础版（当前设计）
 
-- [ ] 新建 `services/rag/` 服务
-- [ ] 实现 `POST /v1/vault/query`
-- [ ] 实现 `POST /v1/vault/write`
-- [ ] 集成 vLLM 生成回答
-- [ ] 挂载 Vault volume
-- [ ] 文档和测试
+- [x] 新建 `services/rag/` 服务
+- [x] 实现 `POST /v1/vault/query`
+- [x] 实现 `POST /v1/vault/write`
+- [x] 集成 vLLM 生成回答
+- [x] 挂载 Vault volume
+- [x] 文档和测试
 
 ### 8.2 Phase 2：索引管理
 

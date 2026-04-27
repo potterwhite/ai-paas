@@ -42,9 +42,9 @@ services:
       - --model
       - /models/qwen2.5-32b-instruct-awq  # Production 32B AWQ model (upgraded 2026-04-02)
       - --gpu-memory-utilization
-      - "0.985"  # With VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1: accounts for CUDA graph pool (~1GB); 23.56*0.985=23.2GB < 23.3GB free
+      - "0.95"  # Reduced from 0.985: leave VRAM headroom for RAG/other services
       - --max-model-len
-      - "10080"  # Reduced from 10800: with VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1 the KV cache ceiling dropped; 10080 is vLLM's suggested max
+      - "9600"  # Reduced from 10080: align with lower GPU memory utilization
       - --trust-remote-code
       - --enable-auto-tool-choice        # Required for OpenClaw/agent tool calls
       - --tool-call-parser
@@ -309,7 +309,7 @@ services:
     ports:
       - "8081:8081"
     volumes:
-      - ${VAULT_PATH:-./vault}:/vault:ro
+      - /Development/backup/PARA-Vault:/vault:ro
       - ./data/rag_chroma:/db/chroma
       - ${MODELS_PATH:-./models}:/models:ro
     environment:
