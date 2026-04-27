@@ -13,6 +13,7 @@ data/chrome-profile/
 data/cookies/
 data/router_db/
 data/router_redis/
+data/rag_chroma/
 
 # Whitelisted: pre-bundled ComfyUI config (workflows, model paths) — git-tracked
 # data/comfyui_workflows/   ← tracked (all *.json, *.png, *.jpg, *.mp4)
