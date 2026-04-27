@@ -33,7 +33,11 @@
       "inputs": [{"name": "clip", "type": "CLIP", "link": 4}],
       "outputs": [{"name": "conditioning", "type": "CONDITIONING", "links": [6]}],
       "properties": {"Node name for S&R": "CogVideoTextEncode"},
-      "widgets_values": ["A serene mountain landscape at golden hour, mist rolling through pine forests, cinematic 4K, smooth camera movement, breathtaking scenery", 1, false]
+      "widgets_values": [
+        "Cinematic 8K masterpiece, cyberpunk city street at night during heavy rain, vibrant neon lights reflecting on wet pavement, flying cars in the background, dramatic low angle tracking shot slowly moving forward, ultra detailed, smooth camera movement, volumetric lighting, reflections, blade runner 2049 style, epic atmosphere, film grain, depth of field, intricate details, best quality, highly detailed",
+        1,
+        false
+      ]
     },
     {
       "id": 5,
@@ -43,7 +47,11 @@
       "inputs": [{"name": "clip", "type": "CLIP", "link": 5}],
       "outputs": [{"name": "conditioning", "type": "CONDITIONING", "links": [7]}],
       "properties": {"Node name for S&R": "CogVideoTextEncode"},
-      "widgets_values": ["", 1, true]
+      "widgets_values": [
+        "blurry, low quality, deformed, ugly, distorted, watermark, text, logo, artifacts, jitter, shaky camera, unstable motion, bad anatomy, low resolution, overexposed, underexposed, noisy, grainy, cartoon, painting, 3d render, worst quality, extra limbs, mutated hands, poorly drawn face, text, signature",
+        1,
+        true
+      ]
     },
     {
       "id": 6,
@@ -53,7 +61,7 @@
       "inputs": [],
       "outputs": [{"name": "LATENT", "type": "LATENT", "links": [8]}],
       "properties": {"Node name for S&R": "EmptyLatentImage"},
-      "widgets_values": [720, 480, 1]
+      "widgets_values": [864, 480, 1]
     },
     {
       "id": 7,
@@ -61,10 +69,10 @@
       "pos": [970, 200],
       "size": [340, 220],
       "inputs": [
-        {"name": "model",    "type": "COGVIDEOMODEL", "link": 1},
-        {"name": "positive", "type": "CONDITIONING",  "link": 6},
-        {"name": "negative", "type": "CONDITIONING",  "link": 7},
-        {"name": "samples",  "type": "LATENT",        "link": 8}
+        {"name": "model", "type": "COGVIDEOMODEL", "link": 1},
+        {"name": "positive", "type": "CONDITIONING", "link": 6},
+        {"name": "negative", "type": "CONDITIONING", "link": 7},
+        {"name": "samples", "type": "LATENT", "link": 8}
       ],
       "outputs": [{"name": "samples", "type": "LATENT", "links": [9]}],
       "properties": {"Node name for S&R": "CogVideoSampler"},
@@ -76,8 +84,8 @@
       "pos": [1380, 200],
       "size": [315, 140],
       "inputs": [
-        {"name": "vae",     "type": "VAE",   "link": 3},
-        {"name": "samples", "type": "LATENT","link": 9}
+        {"name": "vae", "type": "VAE", "link": 3},
+        {"name": "samples", "type": "LATENT", "link": 9}
       ],
       "outputs": [{"name": "images", "type": "IMAGE", "links": [10]}],
       "properties": {"Node name for S&R": "CogVideoDecode"},
@@ -97,7 +105,7 @@
         "filename_prefix": "CogVideoX5B_T2V",
         "format": "video/h264-mp4",
         "pix_fmt": "yuv420p",
-        "crf": 19,
+        "crf": 18,
         "save_metadata": true,
         "pingpong": false,
         "save_output": true
@@ -105,15 +113,15 @@
     }
   ],
   "links": [
-    [1,  1, 0, 7, 0, "COGVIDEOMODEL"],
-    [2,  1, 1, 8, 0, "VAE"],
-    [3,  1, 1, 8, 0, "VAE"],
-    [4,  3, 0, 4, 0, "CLIP"],
-    [5,  3, 0, 5, 0, "CLIP"],
-    [6,  4, 0, 7, 1, "CONDITIONING"],
-    [7,  5, 0, 7, 2, "CONDITIONING"],
-    [8,  6, 0, 7, 3, "LATENT"],
-    [9,  7, 0, 8, 1, "LATENT"],
+    [1, 1, 0, 7, 0, "COGVIDEOMODEL"],
+    [2, 1, 1, 8, 0, "VAE"],
+    [3, 1, 1, 8, 0, "VAE"],
+    [4, 3, 0, 4, 0, "CLIP"],
+    [5, 3, 0, 5, 0, "CLIP"],
+    [6, 4, 0, 7, 1, "CONDITIONING"],
+    [7, 5, 0, 7, 2, "CONDITIONING"],
+    [8, 6, 0, 7, 3, "LATENT"],
+    [9, 7, 0, 8, 1, "LATENT"],
     [10, 8, 0, 9, 0, "IMAGE"]
   ],
   "groups": [],
@@ -121,12 +129,9 @@
   "extra": {
     "ds": {"scale": 0.5, "offset": [0, 0]},
     "info": {
-      "name": "03 — CogVideoX-5B Text to Video",
-      "description": "Text prompt → 6-second 720x480 video at 8fps. Uses DownloadAndLoadCogVideoModel (auto-loads THUDM/CogVideoX-5b sharded weights). ~49 frames, ~50 steps.",
-      "model": "THUDM/CogVideoX-5b (auto-loaded from HuggingFace cache)",
-      "vae": "included in DownloadAndLoadCogVideoModel",
-      "text_encoder": "t5xxl_fp8_e4m3fn.safetensors (fp8 single-file, CLIPLoader)",
-      "vram_required": "~14 GB (with bf16)"
+      "name": "CogVideoX-5B Social Media HD Version",
+      "description": "864x480 resolution, 49 frames (~6 seconds at 8fps), optimized English prompts + strong negative, perfect for TikTok, Instagram Reels, YouTube Shorts, Xiaohongshu",
+      "vram_required": "~18-22 GB on RTX 3090 (bf16)"
     }
   },
   "version": 0.4

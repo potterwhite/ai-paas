@@ -42,9 +42,9 @@ services:
       - --model
       - /models/qwen2.5-32b-instruct-awq  # Production 32B AWQ model (upgraded 2026-04-02)
       - --gpu-memory-utilization
-      - "0.985"  # With VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1: accounts for CUDA graph pool (~1GB); 23.56*0.985=23.2GB < 23.3GB free
+      - "0.95"  # Reduced from 0.985: leave VRAM headroom for RAG/other services
       - --max-model-len
-      - "10080"  # Reduced from 10800: with VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1 the KV cache ceiling dropped; 10080 is vLLM's suggested max
+      - "9600"  # Reduced from 10080: align with lower GPU memory utilization
       - --trust-remote-code
       - --enable-auto-tool-choice        # Required for OpenClaw/agent tool calls
       - --tool-call-parser
@@ -255,11 +255,13 @@ services:
       - VLLM_CONTAINER=ai_vllm_qwen            # default container name; webapp delegates to Router for switching
       - HF_TOKEN=${HF_TOKEN:-}               # optional: HuggingFace token for gated models
       - YTDLP_COOKIES_PATH=/cookies/cookies.txt  # optional: yt-dlp cookie file for YouTube auth
+      - MEDIA_ROOT=${MEDIA_ROOT:+/media}         # set to /media only when MEDIA_ROOT is configured
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # GPU panel: docker API + nvidia-smi via exec into vllm containers
       - ${MODELS_PATH:-./models}:/models                       # model manager: read/write model weights
       - ./data/comfyui_workflows:/comfyui_workflows:ro         # built-in workflow JSONs for browser UI
       - ./data/cookies:/cookies:ro                             # yt-dlp cookies (managed by ai_cookie_manager)
+      - ${MEDIA_ROOT:-./data/media}:/media                     # media storage for downloads (NFS or local)
     networks:
       - default
     depends_on:
@@ -294,6 +296,33 @@ services:
       interval: 60s
       timeout: 10s
       retries: 3
+
+  # ============================================================
+  # 9. Vault RAG — Obsidian knowledge base AI query (Phase 6)
+  #    FastAPI + ChromaDB + BGE embedding + vLLM
+  #    Ports: 8081 (RAG API)
+  # ============================================================
+  rag:
+    build: ./services/rag
+    container_name: ai_rag
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - ${VAULT_PATH:-/Development/backup/PARA-Vault}:/vault:ro
+      - ./data/rag_chroma:/db/chroma
+      - ${MODELS_PATH:-./models}:/models:ro
+    environment:
+      - RAG_PORT=8081
+      - CHROMA_DB_PATH=/db/chroma
+      - EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+      - VAULT_PATH=/vault
+      - ROUTER_BASE_URL=http://ai_router:4000
+      - ROUTER_API_KEY=${LITELLM_MASTER_KEY:-sk-change-me}
+    depends_on:
+      - router
+    networks:
+      - default
 
 networks:
   default:

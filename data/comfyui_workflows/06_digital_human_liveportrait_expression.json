@@ -1,6 +1,6 @@
 {
-  "last_node_id": 4,
-  "last_link_id": 4,
+  "last_node_id": 3,
+  "last_link_id": 2,
   "nodes": [
     {
       "id": 1,
@@ -13,7 +13,7 @@
         {"name": "MASK",  "type": "MASK",  "links": []}
       ],
       "properties": {},
-      "widgets_values": ["portrait.png", "image"],
+      "widgets_values": ["default_liveportrait_portrait.png", "image"],
       "color": "#232",
       "bgcolor": "#353"
     },
@@ -25,7 +25,11 @@
       "inputs": [
         {"name": "src_image", "type": "IMAGE", "link": 1}
       ],
-      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [2]}],
+      "outputs": [
+        {"name": "image",       "type": "IMAGE",       "links": [2]},
+        {"name": "motion_link", "type": "EDITOR_LINK", "links": []},
+        {"name": "save_exp",    "type": "EXP_DATA",    "links": []}
+      ],
       "properties": {},
       "widgets_values": [
         0.0,
@@ -38,8 +42,8 @@
         0.0,
         0.0,
         0.0,
-        0.5,
-        1.3,
+        0.0,
+        0.0,
         1.0,
         1.0,
         "OnlyExpression",
@@ -67,16 +71,27 @@
     "ds": {"scale": 0.7, "offset": [0, 0]},
     "info": {
       "name": "06 — Digital Human: LivePortrait Expression Editor",
-      "description": "Upload a portrait photo and use sliders to control: smile, blink, eye-brow raise, head yaw/pitch/roll, pupil direction, lip shapes (aaa/eee/woo). Single image output. Perfect for previewing expressions before making a video.",
+      "description": "Upload a portrait photo and use sliders to control: smile, blink, eyebrow, head yaw/pitch/roll, pupil direction, lip shapes (aaa/eee/woo). Single image output. Perfect for previewing expressions before making a video. All sliders default to 0 (neutral face); adjust smile/blink etc. to taste.",
       "model": "LivePortrait (ComfyUI-AdvancedLivePortrait node)",
       "vram_required": "< 4 GB",
-      "sliders": {
-        "smile": "widgets_values[10] — range 0~1, try 0.5 for a natural smile",
-        "blink": "widgets_values[3] — range 0~1",
-        "rotate_yaw": "widgets_values[1] — head left/right",
-        "rotate_pitch": "widgets_values[0] — head up/down",
-        "rotate_roll": "widgets_values[2] — head tilt"
-      }
+      "slider_order": [
+        "rotate_pitch [0]",
+        "rotate_yaw   [1]",
+        "rotate_roll  [2]",
+        "blink        [3]",
+        "eyebrow      [4]",
+        "wink         [5]",
+        "pupil_x      [6]",
+        "pupil_y      [7]",
+        "aaa          [8]",
+        "eee          [9]",
+        "woo          [10]",
+        "smile        [11]",
+        "src_ratio    [12]",
+        "sample_ratio [13]",
+        "sample_parts [14]",
+        "crop_factor  [15]"
+      ]
     }
   },
   "version": 0.4

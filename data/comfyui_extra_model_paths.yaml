@@ -1,0 +1,14 @@
+comfyui:
+    base_path: /root/ComfyUI/models
+
+    checkpoints: checkpoints/
+    vae: vae/
+    loras: loras/
+    upscale_models: upscale_models/
+    text_encoders: text_encoders/
+    diffusion_models: diffusion_models/
+    tokenizers: tokenizers/
+    diffusers: diffusers/
+    liveportrait: liveportrait/
+    insightface: insightface/
+    ultralytics: ultralytics/

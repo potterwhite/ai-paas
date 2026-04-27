@@ -146,6 +146,33 @@ check_deps() {
             log_warn "  ⚠ Using default UI_PASSWORD"
             echo "    → Recommend changing it"
         fi
+
+        # Check VAULT_PATH (for Phase 6 Vault RAG)
+        local vault_path_line
+        vault_path_line=$(grep -E '^\s*VAULT_PATH=' "${env_file}" | head -1 || echo "")
+        if [[ -n "$vault_path_line" ]] && [[ ! "$vault_path_line" =~ ^\s*# ]]; then
+            local vault_path_value
+            vault_path_value=$(echo "$vault_path_line" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | xargs)
+            if [[ -n "$vault_path_value" ]] && [[ -d "$vault_path_value" ]]; then
+                log_info "  ✓ VAULT_PATH configured: $vault_path_value"
+            elif [[ -n "$vault_path_value" ]]; then
+                log_error "  ✗ VAULT_PATH not found: $vault_path_value"
+                has_issues=1
+            fi
+        fi
+
+        # Check MEDIA_ROOT (for downloads)
+        local media_root_line
+        media_root_line=$(grep -E '^\s*MEDIA_ROOT=' "${env_file}" | head -1 || echo "")
+        if [[ -n "$media_root_line" ]] && [[ ! "$media_root_line" =~ ^\s*# ]]; then
+            local media_root_value
+            media_root_value=$(echo "$media_root_line" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | xargs)
+            if [[ -n "$media_root_value" ]] && [[ -d "$media_root_value" ]]; then
+                log_info "  ✓ MEDIA_ROOT configured: $media_root_value"
+            elif [[ -n "$media_root_value" ]]; then
+                log_warn "  ⚠ MEDIA_ROOT not found: $media_root_value"
+            fi
+        fi
     fi
 
     # 2. Check models directory

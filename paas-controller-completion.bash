@@ -26,7 +26,7 @@ _paas_controller_completion() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="status start stop restart logs prepare clean-data clean-models cleanall check-deps fix-permissions reset-router disk-usage help"
+    local commands="status start start-all stop stop-all restart restart-all logs prepare clean-data clean-models cleanall check-deps fix-permissions reset-router rebuild-comfyui disk-usage help"
     local log_containers="ai_vllm ai_litellm ai_whisper ai_webapp ai_comfyui ai_router ai_router_redis all"
     local prepare_subcommands="comfyui vllm"
 
