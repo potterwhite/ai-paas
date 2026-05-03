@@ -34,6 +34,7 @@ source "${SCRIPT_DIR}/scripts/service.sh"
 source "${SCRIPT_DIR}/scripts/monitoring.sh"
 source "${SCRIPT_DIR}/scripts/data_models.sh"
 source "${SCRIPT_DIR}/scripts/maintenance.sh"
+source "${SCRIPT_DIR}/scripts/wiki.sh"
 
 # Main command dispatcher
 main() {
@@ -93,6 +94,10 @@ main() {
             ;;
         reset-router)
             reset_router
+            ;;
+        init-wiki)
+            shift
+            init_wiki "$@"
             ;;
         help|--help|-h)
             show_help

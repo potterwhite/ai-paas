@@ -104,6 +104,13 @@ Commands:
     clean-models     Interactive model cleanup (selective delete)
     cleanall         Full cleanup: stops services, cleans data AND all models
 
+  Wiki Management:
+    init-wiki        Initialize wiki directory structure in a vault
+                     Usage: init-wiki --vault-path <path> [--wiki-path <name>] [--schema-path <name>]
+                       --vault-path   Path to the Obsidian vault (required)
+                       --wiki-path    Wiki directory name (default: _wiki)
+                       --schema-path  Schema directory name (default: _schema)
+
   System Maintenance:
     fix-permissions  Fix ownership/permissions on directories (default: data/)
     reset-router     Reset router database and Redis only
@@ -127,6 +134,8 @@ Examples:
     $0 prepare vllm            # Show vLLM model info and switch instructions
     $0 clean-data              # Clean runtime data only
     $0 rebuild-comfyui         # Wipe workdir + re-clone nodes + re-run setup.sh
+    $0 init-wiki --vault-path /path/to/vault    # Initialize wiki in a vault
+    $0 init-wiki --vault-path /path/to/vault --wiki-path wiki --schema-path .schema  # Custom paths
 
 Auto-Completion:
     To enable bash auto-completion, source the completion script:
