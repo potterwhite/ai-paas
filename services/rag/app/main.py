@@ -10,6 +10,9 @@ from pydantic import BaseModel
 from app.config import settings, APIKeyInfo
 from app.rag_engine import search_vault, index_vault, get_index_status
 from app.vault_writer import write_to_vault
+from app.wiki_ingest import wiki_ingest
+from app.wiki_query import wiki_query
+from app.wiki_lint import wiki_lint
 
 
 async def verify_api_key(authorization: Optional[str] = Header(None)) -> APIKeyInfo:
@@ -74,6 +77,8 @@ async def lifespan(app: FastAPI):
     print(f"Vault path: {settings.VAULT_PATH}")
     print(f"ChromaDB path: {settings.CHROMA_DB_PATH}")
     print(f"Embedding model: {settings.EMBEDDING_MODEL}")
+    print(f"Wiki schema path: {settings.WIKI_SCHEMA_PATH}")
+    print(f"Wiki output path: {settings.WIKI_OUTPUT_PATH}")
     yield
     print("RAG service shutting down")
 
@@ -208,6 +213,142 @@ async def rebuild_index(
 async def get_index_status_endpoint(api_key: APIKeyInfo = Depends(verify_api_key)):
     """Get the current index status."""
     return get_index_status()
+
+
+# ── Wiki models ──────────────────────────────────────────────────────────
+
+
+class WikiIngestRequest(BaseModel):
+    source_path: str
+
+
+class WikiIngestResponse(BaseModel):
+    source_path: str
+    pages_written: list[str]
+    index_updated: bool
+
+
+class WikiBatchIngestRequest(BaseModel):
+    source_paths: list[str]
+    concurrency: int = 3
+
+
+class WikiBatchIngestResponse(BaseModel):
+    total: int
+    succeeded: int
+    failed: int
+    results: list[WikiIngestResponse]
+    errors: list[dict]
+
+
+class WikiQueryRequest(BaseModel):
+    question: str
+
+
+class WikiQueryResponse(BaseModel):
+    answer: str
+    citations: list[dict]
+    wiki_pages_used: list[str]
+
+
+class WikiLintResponse(BaseModel):
+    total_pages: int
+    issues: list[dict]
+    error_count: int
+    warning_count: int
+    info_count: int
+
+
+# ── Wiki endpoints ───────────────────────────────────────────────────────
+
+
+@app.post("/v1/wiki/ingest", response_model=WikiIngestResponse)
+async def wiki_ingest_endpoint(
+    request: WikiIngestRequest,
+    api_key: APIKeyInfo = Depends(verify_api_key),
+):
+    """Ingest a source document into the wiki."""
+    try:
+        result = await wiki_ingest.ingest(request.source_path)
+        return WikiIngestResponse(
+            source_path=result.source_path,
+            pages_written=result.pages_written,
+            index_updated=result.index_updated,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Wiki ingest failed: {str(e)}")
+
+
+@app.post("/v1/wiki/ingest/batch", response_model=WikiBatchIngestResponse)
+async def wiki_batch_ingest_endpoint(
+    request: WikiBatchIngestRequest,
+    api_key: APIKeyInfo = Depends(verify_api_key),
+):
+    """Batch ingest multiple source documents into the wiki."""
+    results = await wiki_ingest.ingest_batch(
+        request.source_paths,
+        concurrency=request.concurrency,
+    )
+
+    succeeded = [r for r in results if r.pages_written]
+    failed = [r for r in results if not r.pages_written and "ERROR" in r.log_entry]
+
+    return WikiBatchIngestResponse(
+        total=len(results),
+        succeeded=len(succeeded),
+        failed=len(failed),
+        results=[
+            WikiIngestResponse(
+                source_path=r.source_path,
+                pages_written=r.pages_written,
+                index_updated=r.index_updated,
+            )
+            for r in results
+            if r.pages_written
+        ],
+        errors=[
+            {"path": r.source_path, "error": r.log_entry}
+            for r in results
+            if not r.pages_written
+        ],
+    )
+
+
+@app.post("/v1/wiki/query", response_model=WikiQueryResponse)
+async def wiki_query_endpoint(
+    request: WikiQueryRequest,
+    api_key: APIKeyInfo = Depends(verify_api_key),
+):
+    """Query the wiki for answers."""
+    try:
+        result = await wiki_query.query(request.question)
+        return WikiQueryResponse(
+            answer=result.answer,
+            citations=[c.model_dump() for c in result.citations],
+            wiki_pages_used=result.wiki_pages_used,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Wiki query failed: {str(e)}")
+
+
+@app.get("/v1/wiki/lint", response_model=WikiLintResponse)
+async def wiki_lint_endpoint(
+    api_key: APIKeyInfo = Depends(verify_api_key),
+):
+    """Run lint checks on the wiki."""
+    try:
+        report = await wiki_lint.lint()
+        return WikiLintResponse(
+            total_pages=report.total_pages,
+            issues=[i.model_dump() for i in report.issues],
+            error_count=report.error_count,
+            warning_count=report.warning_count,
+            info_count=report.info_count,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Wiki lint failed: {str(e)}")
 
 
 if __name__ == "__main__":

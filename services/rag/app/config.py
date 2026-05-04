@@ -60,6 +60,24 @@ class Settings(BaseSettings):
         description="ChromaDB collection name",
     )
 
+    # Wiki engine
+    WIKI_SCHEMA_PATH: str = Field(
+        default="_schema",
+        description="Path to schema files relative to vault root",
+    )
+    WIKI_OUTPUT_PATH: str = Field(
+        default="_wiki",
+        description="Path to wiki output relative to vault root",
+    )
+    WIKI_MAX_CHUNK_TOKENS: int = Field(
+        default=3500,
+        description="Max tokens per source document chunk for ingest",
+    )
+    WIKI_BATCH_CONCURRENCY: int = Field(
+        default=3,
+        description="Max concurrent ingest operations for batch mode",
+    )
+
     # API keys (with LOA levels for RBAC)
     API_KEYS: list[APIKeyInfo] = Field(
         default_factory=lambda: [APIKeyInfo(key="sk-rag-default", name="default", loa_level=1)],
@@ -89,3 +107,13 @@ def get_vault_path() -> Path:
 def get_chroma_path() -> Path:
     """Get the ChromaDB path as a Path object."""
     return Path(settings.CHROMA_DB_PATH)
+
+
+def get_wiki_path() -> Path:
+    """Get the wiki output path as a Path object."""
+    return get_vault_path() / settings.WIKI_OUTPUT_PATH
+
+
+def get_schema_path() -> Path:
+    """Get the schema path as a Path object."""
+    return get_vault_path() / settings.WIKI_SCHEMA_PATH
