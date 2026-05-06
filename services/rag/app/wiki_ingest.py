@@ -330,6 +330,18 @@ loa_min: 1
         count=1,
     )
 
+    # Update page count (exclude meta files)
+    page_count = sum(
+        1 for _ in wiki_path.rglob("*.md")
+        if _.name not in ("index.md", "hot.md", "log.md")
+    )
+    content = re.sub(
+        r"总页面数: \d+",
+        f"总页面数: {page_count}",
+        content,
+        count=1,
+    )
+
     await _write_file(index_path, content)
 
 
