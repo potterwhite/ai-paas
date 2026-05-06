@@ -110,6 +110,13 @@ Commands:
                        --vault-path   Path to the Obsidian vault (required)
                        --wiki-path    Wiki directory name (default: _wiki)
                        --schema-path  Schema directory name (default: _schema)
+    wiki-batch       Batch ingest documents into wiki with time-window scheduling
+                     Usage: wiki-batch run --vault-path <path> [--window HH:MM-HH:MM ...]
+                            wiki-batch status --vault-path <path>
+                            wiki-batch reset --vault-path <path>
+                       --vault-path   Path to the Obsidian vault (required)
+                       --window       Time window for processing (can specify multiple)
+                                      Example: --window 02:00-06:00 --window 14:00-16:00
 
   System Maintenance:
     fix-permissions  Fix ownership/permissions on directories (default: data/)
@@ -136,6 +143,9 @@ Examples:
     $0 rebuild-comfyui         # Wipe workdir + re-clone nodes + re-run setup.sh
     $0 init-wiki --vault-path /path/to/vault    # Initialize wiki in a vault
     $0 init-wiki --vault-path /path/to/vault --wiki-path wiki --schema-path .schema  # Custom paths
+    $0 wiki-batch run --vault-path /path/to/vault    # Batch ingest (continuous)
+    $0 wiki-batch run --vault-path /path/to/vault --window 02:00-06:00  # Off-peak only
+    $0 wiki-batch status --vault-path /path/to/vault  # Check progress
 
 Auto-Completion:
     To enable bash auto-completion, source the completion script:

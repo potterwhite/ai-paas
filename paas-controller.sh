@@ -99,6 +99,10 @@ main() {
             shift
             init_wiki "$@"
             ;;
+        wiki-batch)
+            shift
+            wiki_batch "$@"
+            ;;
         help|--help|-h)
             show_help
             ;;

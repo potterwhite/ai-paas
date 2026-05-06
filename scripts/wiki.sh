@@ -237,3 +237,18 @@ LOGEOF
     echo "    2. Run ingest to populate wiki pages"
     echo "    3. Use query to ask questions against the wiki"
 }
+
+
+# Run batch ingest with time-window scheduling
+# Usage: wiki_batch --vault-path <path> [--window HH:MM-HH:MM ...] [--status] [--reset]
+wiki_batch() {
+    local batch_script="${SCRIPT_DIR}/scripts/wiki_batch.py"
+
+    if [[ ! -f "$batch_script" ]]; then
+        log_error "Batch script not found: ${batch_script}"
+        return 1
+    fi
+
+    # Pass all arguments through to the Python script
+    python3 "$batch_script" "$@"
+}
