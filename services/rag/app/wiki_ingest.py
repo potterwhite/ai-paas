@@ -134,8 +134,13 @@ def _parse_wiki_pages(llm_response: str) -> list[WikiPage]:
     ```
     """
     pages = []
-    pattern = r'```wiki-page\s*\n(.*?)```'
-    matches = re.findall(pattern, llm_response, re.DOTALL)
+
+    # Try closed blocks first, then unclosed (LLM may omit closing ```)
+    pattern_closed = r'```wiki-page\s*\n(.*?)```'
+    pattern_unclosed = r'```wiki-page\s*\n(.*)'
+    matches = re.findall(pattern_closed, llm_response, re.DOTALL)
+    if not matches:
+        matches = re.findall(pattern_unclosed, llm_response, re.DOTALL)
 
     if not matches:
         # Fallback: treat entire response as a single concept page
@@ -156,7 +161,9 @@ def _parse_wiki_pages(llm_response: str) -> list[WikiPage]:
             if line.lower().startswith("category:"):
                 category = line.split(":", 1)[1].strip()
             elif line.lower().startswith("filename:"):
-                filename = line.split(":", 1)[1].strip()
+                raw_fn = line.split(":", 1)[1].strip()
+                # LLM may output full paths like "_wiki/source/Foo.md"
+                filename = Path(raw_fn).name
             elif line.strip() == "---":
                 content_start = i
                 break

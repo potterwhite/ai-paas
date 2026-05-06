@@ -90,14 +90,16 @@ def _check_frontmatter(path: str, content: str) -> list[LintIssue]:
         ))
         return issues
 
-    for field in REQUIRED_FRONTMATTER:
-        if field not in fm:
-            issues.append(LintIssue(
-                severity="error",
-                category="frontmatter",
-                file_path=path,
-                message=f"Missing required field: {field}",
-            ))
+    # Skip strict field validation for meta files
+    if not ("index.md" in path or "hot.md" in path or "log.md" in path):
+        for field in REQUIRED_FRONTMATTER:
+            if field not in fm:
+                issues.append(LintIssue(
+                    severity="error",
+                    category="frontmatter",
+                    file_path=path,
+                    message=f"Missing required field: {field}",
+                ))
 
     if fm.get("type") and fm["type"] not in VALID_TYPES:
         issues.append(LintIssue(
