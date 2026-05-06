@@ -256,6 +256,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
     nav_links = [
         ("/",          "🏠", "首页"),
         ("/knowledge", "📚", "知识库"),
+        ("/wiki",      "📖", "Wiki"),
         ("/subtitle",  "🎬", "字幕"),
         ("/download",  "📥", "下载"),
         ("/translate", "🌐", "翻译"),
@@ -1086,6 +1087,81 @@ async function runQuery() {
     return page("知识库", "/knowledge", body)
 
 
+# ── /wiki ───────────────────────────────────────────────────────────────────
+@app.get("/wiki", response_class=HTMLResponse)
+async def wiki_page():
+    body = """
+<div class="card">
+  <h2>Wiki 知识库</h2>
+  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+    基于 LLM 预处理的结构化 Wiki 页面回答问题。比传统 RAG 更准确，回答带引用来源。
+  </p>
+
+  <div class="form-group">
+    <label>问题</label>
+    <input type="text" id="wiki-query" placeholder="输入你的问题..." onkeydown="if(event.key==='Enter')runWikiQuery()">
+  </div>
+
+  <button class="btn btn-primary" id="wiki-btn" onclick="runWikiQuery()">
+    🔍 查询
+  </button>
+
+  <div class="result-box" id="wiki-result"></div>
+</div>
+
+<script>
+async function runWikiQuery() {
+  const query = document.getElementById('wiki-query').value.trim();
+  const btn = document.getElementById('wiki-btn');
+  const res = document.getElementById('wiki-result');
+
+  if (!query) { alert('请输入问题'); return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 查询中...';
+  res.className = 'result-box visible';
+  res.textContent = '正在查询 Wiki，请稍候…（可能需要 10-30 秒）';
+
+  try {
+    const r = await fetch('/api/wiki-query', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question: query})
+    });
+    const d = await r.json();
+    if (d.error) {
+      res.textContent = '❌ ' + d.error;
+    } else {
+      let html = '<div style="margin-bottom:16px;white-space:pre-wrap">' + d.answer + '</div>';
+      if (d.citations && d.citations.length > 0) {
+        html += '<h3 style="margin-top:16px;color:var(--text-dim)">引用来源</h3>';
+        html += '<ul style="color:var(--text-dim)">';
+        for (const c of d.citations) {
+          html += '<li style="margin-bottom:8px">';
+          html += '<span style="color:var(--accent)">' + c.path + '</span>';
+          if (c.relevance) html += ' <span style="font-size:12px">(' + c.relevance + ')</span>';
+          html += '</li>';
+        }
+        html += '</ul>';
+      }
+      if (d.wiki_pages_used && d.wiki_pages_used.length > 0) {
+        html += '<p style="margin-top:12px;color:var(--text-dim);font-size:12px">';
+        html += '参考了 ' + d.wiki_pages_used.length + ' 个 Wiki 页面</p>';
+      }
+      res.innerHTML = html;
+    }
+  } catch(e) {
+    res.textContent = '❌ 请求失败: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🔍 查询';
+  }
+}
+</script>
+"""
+    return page("Wiki", "/wiki", body)
+
+
 # ── /subtitle ────────────────────────────────────────────────────────────────
 @app.get("/subtitle", response_class=HTMLResponse)
 async def subtitle_page():
@@ -1220,6 +1296,32 @@ async def api_knowledge_query(request: dict):
             return JSONResponse(r.json())
         else:
             return JSONResponse({"error": f"RAG 服务错误: {r.status_code}"}, status_code=r.status_code)
+    except Exception as e:
+        return JSONResponse({"error": f"请求失败: {str(e)}"}, status_code=502)
+
+
+@app.post("/api/wiki-query")
+async def api_wiki_query(request: dict):
+    """Proxy to Wiki query endpoint."""
+    question = request.get("question", "")
+
+    if not question:
+        return JSONResponse({"error": "问题不能为空"}, status_code=400)
+
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            r = await client.post(
+                f"{RAG_BASE_URL}/v1/wiki/query",
+                headers={
+                    "Authorization": f"Bearer {RAG_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={"question": question},
+            )
+        if r.status_code == 200:
+            return JSONResponse(r.json())
+        else:
+            return JSONResponse({"error": f"Wiki 服务错误: {r.status_code}"}, status_code=r.status_code)
     except Exception as e:
         return JSONResponse({"error": f"请求失败: {str(e)}"}, status_code=502)
 
