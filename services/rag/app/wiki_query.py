@@ -2,6 +2,7 @@
 
 import json
 import re
+from pathlib import Path
 
 import aiofiles
 import httpx
@@ -80,9 +81,16 @@ async def _select_pages(schema: str, question: str, index: str, hot: str) -> lis
 
 请根据用户问题，从上面的索引中选择最相关的 wiki 页面（最多 5 个）。
 
+索引中的条目格式为 `[页面名](_wiki/分类/文件名.md)`，请提取完整的路径。
+
 输出格式（纯 JSON 数组，不要其他内容）：
 ```json
 ["_wiki/entity/xxx.md", "_wiki/concept/yyy.md"]
+```
+
+如果索引中没有任何与问题相关的页面，输出空数组：
+```json
+[]
 ```
 """
     response = await _call_llm(prompt, max_tokens=500)
@@ -96,7 +104,12 @@ async def _select_pages(schema: str, question: str, index: str, hot: str) -> lis
         except json.JSONDecodeError:
             pass
 
-    # Fallback: extract any paths mentioned
+    # Fallback: extract paths from markdown links [name](_wiki/...)
+    paths = re.findall(r'\(_wiki/[^)]+\.md\)', response)
+    if paths:
+        return [p.strip("()") for p in paths][:5]
+
+    # Fallback 2: extract any _wiki/ paths
     paths = re.findall(r'_wiki/\S+\.md', response)
     return paths[:5]
 
@@ -174,9 +187,24 @@ class WikiQuery:
         # 3. LLM call 1: select pages
         page_paths = await _select_pages(schema, question, index_content, hot_content)
 
+        # Validate paths exist on disk
+        valid_paths = []
+        for p in page_paths:
+            full = vault_path / p
+            if full.exists():
+                valid_paths.append(p)
+            else:
+                # Try to find by filename in wiki directory
+                fname = Path(p).name
+                found = list(wiki_path.rglob(fname))
+                if found:
+                    valid_paths.append(str(found[0].relative_to(vault_path)))
+
+        page_paths = valid_paths
+
         if not page_paths:
             return WikiQueryResult(
-                answer="Wiki 中未找到相关内容。请先运行 ingest 将文档入库。",
+                answer="Wiki 中未找到相关内容。可能原因：1) 尚未 ingest 相关文档；2) 问题不在已入库的知识范围内。请先运行 `wiki-batch run` 将更多文档入库。",
                 citations=[],
                 wiki_pages_used=[],
             )

@@ -299,15 +299,20 @@ loa_min: 1
     category_map = {
         "entity": "项目",
         "concept": "技术概念",
-        "source": "最近文档",
+        "source": "源文档",
         "synthesis": "综合分析",
-        "question": "最近文档",
+        "question": "问答",
     }
 
     for page in new_pages:
         section_name = category_map.get(page.category, "最近文档")
         page_name = page.filename.replace(".md", "")
-        entry = f"- [[{page_name}]]"
+        page_path = f"_wiki/{page.category}/{page.filename}"
+        entry = f"- [{page_name}]({page_path})"
+
+        # Skip if already in index (dedup)
+        if page_path in content:
+            continue
 
         # Insert entry under the appropriate section heading
         pattern = rf"(## {section_name}\n)"
@@ -373,7 +378,12 @@ loa_min: 1
     # Add new entries under "最近入库的文档"
     for page in new_pages:
         page_name = page.filename.replace(".md", "")
-        entry = f"- [[{page_name}]] — {_today()}"
+        page_path = f"_wiki/{page.category}/{page.filename}"
+        entry = f"- [{page_name}]({page_path}) — {_today()}"
+
+        # Skip if already in hot cache (dedup)
+        if page_path in content:
+            continue
 
         # Find the section and insert after the heading
         pattern = r"(## 最近入库的文档\n)"
