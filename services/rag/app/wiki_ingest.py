@@ -464,10 +464,17 @@ class WikiIngest:
         if not all_pages:
             raise RuntimeError("LLM returned no wiki pages")
 
-        # 7. Write wiki pages
+        # 7. Write wiki pages (handle filename collisions)
         written_paths = []
         for page in all_pages:
             page_path = wiki_path / page.category / page.filename
+            if page_path.exists():
+                stem = page_path.stem
+                suffix = page_path.suffix
+                counter = 2
+                while page_path.exists():
+                    page_path = wiki_path / page.category / f"{stem}-{counter}{suffix}"
+                    counter += 1
             await _write_file(page_path, page.content)
             written_paths.append(str(page_path.relative_to(vault_path)))
 
