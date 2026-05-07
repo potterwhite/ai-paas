@@ -316,6 +316,7 @@ wiki_vault_run() {
         vaults=$(_get_vaults)
 
         if [[ -z "$vaults" ]]; then
+            echo ""
             echo -n "Vault path: "
             read -r vault_path
         else
@@ -324,23 +325,18 @@ wiki_vault_run() {
                 [[ -n "$vp" ]] && vault_array+=("$vp")
             done <<< "$vaults"
 
-            if [[ ${#vault_array[@]} -eq 1 ]]; then
-                vault_path="${vault_array[0]}"
-                log_info "Using vault: ${vault_path}"
-            else
-                echo ""
-                echo "Select vault:"
-                local idx=1
-                for vp in "${vault_array[@]}"; do
-                    echo "  ${idx}) ${vp}"
-                    idx=$((idx + 1))
-                done
-                echo ""
-                echo -n "Choice [1]: "
-                read -r choice
-                choice=${choice:-1}
-                vault_path="${vault_array[$((choice - 1))]}"
-            fi
+            echo ""
+            echo "Select vault:"
+            local idx=1
+            for vp in "${vault_array[@]}"; do
+                echo "  ${idx}) ${vp}"
+                idx=$((idx + 1))
+            done
+            echo ""
+            echo -n "Choice [1]: "
+            read -r choice
+            choice=${choice:-1}
+            vault_path="${vault_array[$((choice - 1))]}"
         fi
     fi
 
@@ -377,7 +373,7 @@ wiki_vault_run() {
     # Interactive time window if not specified
     if [[ ${#windows[@]} -eq 0 ]]; then
         echo ""
-        echo "Time window (e.g. 22:00-06:30, or Enter for 24/7): "
+        echo -n "Time window [Enter=24/7, e.g. 22:00-06:30]: "
         read -r window_input
         if [[ -n "$window_input" ]]; then
             windows+=("$window_input")
@@ -387,7 +383,7 @@ wiki_vault_run() {
     # Interactive background mode if not specified
     if [[ -z "$bg_mode" ]]; then
         echo ""
-        echo -n "Run in background? (Y/n): "
+        echo -n "Run in background? [Y/n]: "
         read -r bg_answer
         bg_answer=${bg_answer:-Y}
         if [[ "$bg_answer" =~ ^[Yy] ]]; then
