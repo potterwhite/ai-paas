@@ -7,7 +7,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 
-from app.config import settings, APIKeyInfo
+from app.config import settings, APIKeyInfo, get_wiki_path
 from app.rag_engine import search_vault, index_vault, get_index_status
 from app.vault_writer import write_to_vault
 from app.wiki_ingest import wiki_ingest
@@ -268,6 +268,8 @@ async def wiki_ingest_endpoint(
     api_key: APIKeyInfo = Depends(verify_api_key),
 ):
     """Ingest a source document into the wiki."""
+    if settings.WIKI_READ_ONLY:
+        raise HTTPException(status_code=403, detail="Wiki is in read-only mode. Set WIKI_READ_ONLY=false to enable writes.")
     try:
         result = await wiki_ingest.ingest(request.source_path)
         return WikiIngestResponse(
@@ -287,6 +289,8 @@ async def wiki_batch_ingest_endpoint(
     api_key: APIKeyInfo = Depends(verify_api_key),
 ):
     """Batch ingest multiple source documents into the wiki."""
+    if settings.WIKI_READ_ONLY:
+        raise HTTPException(status_code=403, detail="Wiki is in read-only mode. Set WIKI_READ_ONLY=false to enable writes.")
     results = await wiki_ingest.ingest_batch(
         request.source_paths,
         concurrency=request.concurrency,
@@ -349,6 +353,42 @@ async def wiki_lint_endpoint(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Wiki lint failed: {str(e)}")
+
+
+@app.get("/v1/wiki/status")
+async def wiki_status_endpoint():
+    """Return wiki engine status (read-only endpoint, no auth required)."""
+    wiki_path = get_wiki_path()
+    page_count = sum(1 for _ in wiki_path.rglob("*.md") if _.name not in ("index.md", "hot.md", "log.md"))
+    return {
+        "read_only": settings.WIKI_READ_ONLY,
+        "llm_model": settings.WIKI_LLM_MODEL,
+        "page_count": page_count,
+        "wiki_path": str(wiki_path),
+    }
+
+
+class WikiConfigRequest(BaseModel):
+    read_only: Optional[bool] = None
+    llm_model: Optional[str] = None
+
+
+@app.post("/v1/wiki/config")
+async def wiki_config_endpoint(
+    request: WikiConfigRequest,
+    api_key: APIKeyInfo = Depends(verify_api_key),
+):
+    """Update wiki configuration at runtime."""
+    changed = []
+    if request.read_only is not None:
+        settings.WIKI_READ_ONLY = request.read_only
+        changed.append(f"read_only={request.read_only}")
+    if request.llm_model is not None:
+        settings.WIKI_LLM_MODEL = request.llm_model
+        changed.append(f"llm_model={request.llm_model}")
+    if not changed:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    return {"status": "updated", "changes": changed}
 
 
 if __name__ == "__main__":

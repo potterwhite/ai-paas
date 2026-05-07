@@ -77,6 +77,14 @@ class Settings(BaseSettings):
         default=3,
         description="Max concurrent ingest operations for batch mode",
     )
+    WIKI_READ_ONLY: bool = Field(
+        default=False,
+        description="When True, all wiki write endpoints (ingest) return 403",
+    )
+    WIKI_LLM_MODEL: str = Field(
+        default="qwen",
+        description="LLM model name for wiki query and ingest (must be registered in Router)",
+    )
 
     # API keys (with LOA levels for RBAC)
     API_KEYS: list[APIKeyInfo] = Field(

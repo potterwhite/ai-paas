@@ -50,7 +50,7 @@ async def _call_llm(prompt: str, max_tokens: int = 1600) -> str:
                 "Content-Type": "application/json",
             },
             json={
-                "model": "qwen",
+                "model": settings.WIKI_LLM_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": max_tokens,
             },

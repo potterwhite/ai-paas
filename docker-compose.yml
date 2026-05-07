@@ -319,6 +319,8 @@ services:
       - VAULT_PATH=/vault
       - ROUTER_BASE_URL=http://ai_router:4000
       - ROUTER_API_KEY=${LITELLM_MASTER_KEY:-sk-change-me}
+      - WIKI_READ_ONLY=${WIKI_READ_ONLY:-false}
+      - WIKI_LLM_MODEL=${WIKI_LLM_MODEL:-qwen}
     depends_on:
       - router
     networks:

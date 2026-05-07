@@ -1097,19 +1097,102 @@ async def wiki_page():
     基于 LLM 预处理的结构化 Wiki 页面回答问题。比传统 RAG 更准确，回答带引用来源。
   </p>
 
+  <!-- Settings panel -->
+  <details style="margin-bottom:16px;border:1px solid var(--border);border-radius:8px;padding:12px">
+    <summary style="cursor:pointer;font-size:13px;color:var(--text-dim)">Wiki 设置</summary>
+    <div style="margin-top:12px;display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px">写入权限:</span>
+        <div id="wiki-readonly-toggle" style="position:relative;width:44px;height:24px;border-radius:12px;cursor:pointer;transition:background 0.2s" onclick="toggleWikiReadOnly()">
+          <div id="wiki-readonly-knob" style="position:absolute;top:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left 0.2s"></div>
+        </div>
+        <span id="wiki-readonly-label" style="font-size:12px;color:var(--text-dim)"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px">LLM 模型:</span>
+        <select id="wiki-model-select" onchange="setWikiModel(this.value)" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px">
+          <option value="qwen">qwen (Qwen 2.5 32B)</option>
+          <option value="gemma">gemma (Gemma 4 26B)</option>
+        </select>
+      </div>
+      <span id="wiki-page-count" style="font-size:12px;color:var(--text-dim)"></span>
+    </div>
+  </details>
+
   <div class="form-group">
     <label>问题</label>
     <input type="text" id="wiki-query" placeholder="输入你的问题..." onkeydown="if(event.key==='Enter')runWikiQuery()">
   </div>
 
   <button class="btn btn-primary" id="wiki-btn" onclick="runWikiQuery()">
-    🔍 查询
+    查询
   </button>
 
   <div class="result-box" id="wiki-result"></div>
 </div>
 
 <script>
+let _wikiReadOnly = true;
+
+async function loadWikiStatus() {
+  try {
+    const r = await fetch('/api/wiki-status');
+    const d = await r.json();
+    _wikiReadOnly = d.read_only;
+    updateReadOnlyUI();
+    const sel = document.getElementById('wiki-model-select');
+    if (sel && d.llm_model) sel.value = d.llm_model;
+    const pc = document.getElementById('wiki-page-count');
+    if (pc && d.page_count !== undefined) pc.textContent = d.page_count + ' 页已入库';
+  } catch(e) {}
+}
+
+function updateReadOnlyUI() {
+  const toggle = document.getElementById('wiki-readonly-toggle');
+  const knob = document.getElementById('wiki-readonly-knob');
+  const label = document.getElementById('wiki-readonly-label');
+  if (_wikiReadOnly) {
+    toggle.style.background = '#664400';
+    knob.style.left = '2px';
+    label.textContent = '🔒 只读';
+    label.style.color = '#f0a040';
+  } else {
+    toggle.style.background = '#226622';
+    knob.style.left = '22px';
+    label.textContent = '✏️ 读写';
+    label.style.color = '#40c060';
+  }
+}
+
+async function toggleWikiReadOnly() {
+  const newVal = !_wikiReadOnly;
+  try {
+    const r = await fetch('/api/wiki-config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({read_only: newVal})
+    });
+    const d = await r.json();
+    if (d.error) { alert('设置失败: ' + d.error); return; }
+    _wikiReadOnly = newVal;
+    updateReadOnlyUI();
+  } catch(e) { alert('请求失败: ' + e.message); }
+}
+
+async function setWikiModel(model) {
+  try {
+    const r = await fetch('/api/wiki-config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({llm_model: model})
+    });
+    const d = await r.json();
+    if (d.error) { alert('设置失败: ' + d.error); }
+  } catch(e) { alert('请求失败: ' + e.message); }
+}
+
+loadWikiStatus();
+
 async function runWikiQuery() {
   const query = document.getElementById('wiki-query').value.trim();
   const btn = document.getElementById('wiki-btn');
@@ -1154,7 +1237,7 @@ async function runWikiQuery() {
     res.textContent = '❌ 请求失败: ' + e.message;
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '🔍 查询';
+    btn.innerHTML = '查询';
   }
 }
 </script>
@@ -1322,6 +1405,48 @@ async def api_wiki_query(request: dict):
             return JSONResponse(r.json())
         else:
             return JSONResponse({"error": f"Wiki 服务错误: {r.status_code}"}, status_code=r.status_code)
+    except Exception as e:
+        return JSONResponse({"error": f"请求失败: {str(e)}"}, status_code=502)
+
+
+@app.get("/api/wiki-status")
+async def api_wiki_status():
+    """Proxy to Wiki status endpoint."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{RAG_BASE_URL}/v1/wiki/status")
+        if r.status_code == 200:
+            return JSONResponse(r.json())
+        else:
+            return JSONResponse({"read_only": True, "error": f"Status check failed: {r.status_code}"})
+    except Exception:
+        return JSONResponse({"read_only": True, "error": "RAG service unreachable"})
+
+
+@app.post("/api/wiki-config")
+async def api_wiki_config(request: dict):
+    """Proxy to Wiki config endpoint (toggle read-only, change model)."""
+    payload = {}
+    if "read_only" in request:
+        payload["read_only"] = request["read_only"]
+    if "llm_model" in request:
+        payload["llm_model"] = request["llm_model"]
+    if not payload:
+        return JSONResponse({"error": "No fields to update"}, status_code=400)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"{RAG_BASE_URL}/v1/wiki/config",
+                headers={
+                    "Authorization": f"Bearer {RAG_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        if r.status_code == 200:
+            return JSONResponse(r.json())
+        else:
+            return JSONResponse({"error": f"Config update failed: {r.status_code}"}, status_code=r.status_code)
     except Exception as e:
         return JSONResponse({"error": f"请求失败: {str(e)}"}, status_code=502)
 
