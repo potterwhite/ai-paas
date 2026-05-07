@@ -55,10 +55,11 @@ services:
       - "8000"
 
   # ============================================================
-  # 1b. vLLM — Gemma 4 26B A4B (MoE, placeholder — needs AWQ quantization)
+  # 1b. vLLM — Gemma 4 26B A4B (MoE, AWQ 4-bit)
   #     Profile: llm-gemma | Container: ai_vllm_gemma
-  #     ⚠️ Model weights not yet available. Container definition ready.
-  #     Download quantized model to /models/gemma-4-26B-A4B-awq first.
+  #     Model: cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit (~16 GB)
+  #     Download: ./paas-controller.sh prepare vllm --download gemma
+  #     ⚠️ Only ONE vllm instance runs at a time (VRAM exclusive).
   # ============================================================
   vllm-gemma:
     <<: *vllm-base

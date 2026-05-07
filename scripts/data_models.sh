@@ -358,10 +358,82 @@ prepare_comfyui() {
     fi
 }
 
-# Show vLLM model info: currently loaded model and all available models in MODELS_DIR
+# vLLM model registry: name → (huggingface_repo_id, local_dir_name, size_hint)
+declare -A VLLM_MODEL_REGISTRY=(
+    [gemma]="cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit|gemma-4-26B-A4B-awq|~16GB"
+)
+
+# Show vLLM model info and optionally download models
 prepare_vllm() {
     check_dir
 
+    local download_target="${1:-}"
+
+    # Download mode
+    if [[ "$download_target" == "--download" ]]; then
+        local model_name="${2:-}"
+        if [[ -z "$model_name" ]]; then
+            echo "Available models to download:"
+            for key in "${!VLLM_MODEL_REGISTRY[@]}"; do
+                local IFS='|'
+                read -r repo_id local_dir size_hint <<< "${VLLM_MODEL_REGISTRY[$key]}"
+                echo "  ${key}  ${repo_id}  (${size_hint})"
+            done
+            echo ""
+            echo "Usage: prepare vllm --download <name>"
+            echo "  Example: prepare vllm --download gemma"
+            return 0
+        fi
+
+        if [[ -z "${VLLM_MODEL_REGISTRY[$model_name]+x}" ]]; then
+            log_error "Unknown model: ${model_name}"
+            log_error "Available: ${!VLLM_MODEL_REGISTRY[*]}"
+            return 1
+        fi
+
+        local IFS='|'
+        read -r repo_id local_dir size_hint <<< "${VLLM_MODEL_REGISTRY[$model_name]}"
+        local target_path="${MODELS_DIR}/${local_dir}"
+
+        if [[ -d "$target_path" ]]; then
+            log_warn "Model directory already exists: ${target_path}"
+            echo -n "Re-download? (y/N): "
+            read -r confirm
+            if [[ ! "$confirm" =~ ^[Yy] ]]; then
+                log_info "Cancelled."
+                return 0
+            fi
+        fi
+
+        log_info "Downloading ${model_name} (${size_hint})..."
+        log_info "  Repo:  ${repo_id}"
+        log_info "  Local: ${target_path}"
+        echo ""
+
+        # Use huggingface-cli if available, otherwise fall back to python
+        if command -v huggingface-cli &>/dev/null; then
+            huggingface-cli download "$repo_id" --local-dir "$target_path"
+        else
+            python3 -c "
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id='${repo_id}', local_dir='${target_path}')
+print('Download complete: ${target_path}')
+"
+        fi
+
+        if [[ $? -eq 0 ]]; then
+            log_info "Download complete: ${target_path}"
+            echo ""
+            echo "To use this model:"
+            echo "  docker compose --profile llm-${model_name} up -d"
+        else
+            log_error "Download failed. Check network and try again."
+            return 1
+        fi
+        return 0
+    fi
+
+    # Info mode (default)
     # Detect current model from docker-compose.yml
     local compose_file="${DOCKER_COMPOSE_FILE}"
     local current_model=""
@@ -403,17 +475,25 @@ prepare_vllm() {
 
     if [[ "$found" == "false" ]]; then
         log_warn "No model directories found in ${MODELS_DIR} (excluding comfyui/)."
-        echo ""
-        log_info "To download a vLLM model, see: docs/zh/1-for-ai/vllm-model-download.md"
-        return 0
     fi
 
     echo ""
-    log_info "To switch models:"
-    echo "  1. Edit docker-compose.yml — change the '- /models/<name>' line under vllm command"
-    echo "  2. Run: docker compose up -d --force-recreate vllm"
+    log_info "Download a model:"
+    for key in "${!VLLM_MODEL_REGISTRY[@]}"; do
+        local IFS='|'
+        read -r repo_id local_dir size_hint <<< "${VLLM_MODEL_REGISTRY[$key]}"
+        if [[ -d "${MODELS_DIR}/${local_dir}" ]]; then
+            echo "  ${key}  ${repo_id}  (${size_hint})  [installed]"
+        else
+            echo "  ${key}  ${repo_id}  (${size_hint})"
+        fi
+    done
     echo ""
-    log_info "For download instructions: docs/zh/1-for-ai/vllm-model-download.md"
+    echo "  Usage: prepare vllm --download <name>"
+    echo ""
+    log_info "To switch models:"
+    echo "  docker compose --profile llm-<name> up -d"
+    echo "  Example: docker compose --profile llm-gemma up -d"
 }
 
 # Dispatcher: prepare [comfyui|vllm]
@@ -425,7 +505,8 @@ prepare() {
             prepare_comfyui
             ;;
         vllm)
-            prepare_vllm
+            shift
+            prepare_vllm "$@"
             ;;
         *)
             log_error "Unknown prepare subcommand: $subcommand"
