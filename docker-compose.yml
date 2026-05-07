@@ -69,12 +69,12 @@ services:
       - --model
       - /models/gemma-4-26B-A4B-awq      # MoE 25.2B total / 3.8B active — AWQ ~13GB
       - --gpu-memory-utilization
-      - "0.90"  # MoE ~13GB AWQ; conservative to leave headroom
+      - "0.95"  # MoE ~13GB AWQ; need more for KV cache
       - --max-model-len
-      - "8192"  # Conservative start; tune after VRAM profiling
+      - "4096"  # Reduced to fit in VRAM with MoE overhead
       - --trust-remote-code
       - --max-num-batched-tokens
-      - "32768"                                # Must be > max_tokens_per_mm_item (2496) for multimodal
+      - "4096"                                 # Match max_model_len
       - --host
       - "0.0.0.0"
       - --port
