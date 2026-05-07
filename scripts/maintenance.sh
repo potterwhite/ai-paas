@@ -105,18 +105,16 @@ Commands:
     cleanall         Full cleanup: stops services, cleans data AND all models
 
   Wiki Management:
-    init-wiki        Initialize wiki directory structure in a vault
-                     Usage: init-wiki --vault-path <path> [--wiki-path <name>] [--schema-path <name>]
-                       --vault-path   Path to the Obsidian vault (required)
-                       --wiki-path    Wiki directory name (default: _wiki)
-                       --schema-path  Schema directory name (default: _schema)
-    wiki-batch       Batch ingest documents into wiki with time-window scheduling
-                     Usage: wiki-batch run --vault-path <path> [--window HH:MM-HH:MM ...]
-                            wiki-batch status --vault-path <path>
-                            wiki-batch reset --vault-path <path>
-                       --vault-path   Path to the Obsidian vault (required)
-                       --window       Time window for processing (can specify multiple)
-                                      Example: --window 02:00-06:00 --window 14:00-16:00
+    wiki-vault       Unified wiki vault management (init + ingest + status)
+                     Usage: wiki-vault status
+                            wiki-vault run [--vault-path <path>] [--window HH:MM-HH:MM] [--bg|--fg]
+                            wiki-vault reset [--vault-path <path>]
+                       status           Show all vaults and ingest progress
+                       run              Initialize (if needed) and start batch ingest
+                       reset            Reset batch progress for a vault
+                       --vault-path     Path to the Obsidian vault (interactive if omitted)
+                       --window         Time window for processing (can specify multiple)
+                       --bg / --fg      Force background or foreground mode
 
   System Maintenance:
     fix-permissions  Fix ownership/permissions on directories (default: data/)
@@ -141,11 +139,10 @@ Examples:
     $0 prepare vllm            # Show vLLM model info and switch instructions
     $0 clean-data              # Clean runtime data only
     $0 rebuild-comfyui         # Wipe workdir + re-clone nodes + re-run setup.sh
-    $0 init-wiki --vault-path /path/to/vault    # Initialize wiki in a vault
-    $0 init-wiki --vault-path /path/to/vault --wiki-path wiki --schema-path .schema  # Custom paths
-    $0 wiki-batch run --vault-path /path/to/vault    # Batch ingest (continuous)
-    $0 wiki-batch run --vault-path /path/to/vault --window 02:00-06:00  # Off-peak only
-    $0 wiki-batch status --vault-path /path/to/vault  # Check progress
+    $0 wiki-vault status                          # Show all vaults and progress
+    $0 wiki-vault run                             # Interactive: select vault, window, bg mode
+    $0 wiki-vault run --vault-path /path/to/vault # Direct: init + ingest (foreground)
+    $0 wiki-vault run --vault-path /path --window 02:00-06:00 --bg  # Background with window
 
 Auto-Completion:
     To enable bash auto-completion, source the completion script:

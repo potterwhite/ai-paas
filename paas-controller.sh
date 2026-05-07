@@ -34,7 +34,7 @@ source "${SCRIPT_DIR}/scripts/service.sh"
 source "${SCRIPT_DIR}/scripts/monitoring.sh"
 source "${SCRIPT_DIR}/scripts/data_models.sh"
 source "${SCRIPT_DIR}/scripts/maintenance.sh"
-source "${SCRIPT_DIR}/scripts/wiki.sh"
+source "${SCRIPT_DIR}/scripts/wiki_vault.sh"
 
 # Main command dispatcher
 main() {
@@ -95,13 +95,9 @@ main() {
         reset-router)
             reset_router
             ;;
-        init-wiki)
+        wiki-vault)
             shift
-            init_wiki "$@"
-            ;;
-        wiki-batch)
-            shift
-            wiki_batch "$@"
+            wiki_vault "$@"
             ;;
         help|--help|-h)
             show_help

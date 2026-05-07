@@ -26,10 +26,10 @@ _paas_controller_completion() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="status start start-all stop stop-all restart restart-all logs prepare clean-data clean-models cleanall check-deps fix-permissions reset-router rebuild-comfyui disk-usage init-wiki wiki-batch help"
+    local commands="status start start-all stop stop-all restart restart-all logs prepare clean-data clean-models cleanall check-deps fix-permissions reset-router rebuild-comfyui disk-usage wiki-vault help"
     local log_containers="ai_vllm ai_litellm ai_whisper ai_webapp ai_comfyui ai_router ai_router_redis all"
     local prepare_subcommands="comfyui vllm"
-    local wiki_batch_subcommands="run status reset"
+    local wiki_vault_subcommands="run status reset"
 
     # If first word, suggest commands
     if [[ $cword -eq 1 ]]; then
@@ -45,14 +45,11 @@ _paas_controller_completion() {
         prepare)
             COMPREPLY=( $(compgen -W "$prepare_subcommands" -- "$cur") )
             ;;
-        init-wiki)
-            COMPREPLY=( $(compgen -W "--vault-path --wiki-path --schema-path" -- "$cur") )
-            ;;
-        wiki-batch)
+        wiki-vault)
             if [[ $cword -eq 2 ]]; then
-                COMPREPLY=( $(compgen -W "$wiki_batch_subcommands" -- "$cur") )
+                COMPREPLY=( $(compgen -W "$wiki_vault_subcommands" -- "$cur") )
             else
-                COMPREPLY=( $(compgen -W "--vault-path --window" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--vault-path --window --bg --fg" -- "$cur") )
             fi
             ;;
         *)
