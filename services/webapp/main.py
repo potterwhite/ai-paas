@@ -1213,7 +1213,7 @@ async function runWikiQuery() {
     });
     const d = await r.json();
     if (d.error) {
-      res.textContent = '❌ ' + d.error;
+      res.innerHTML = '<div style="white-space:pre-wrap;color:#f87171">❌ ' + d.error.replace(/\n/g, '<br>') + '</div>';
     } else {
       let html = '<div style="margin-bottom:16px;white-space:pre-wrap">' + d.answer + '</div>';
       if (d.citations && d.citations.length > 0) {
@@ -1404,8 +1404,23 @@ async def api_wiki_query(request: dict):
         if r.status_code == 200:
             return JSONResponse(r.json())
         else:
-            return JSONResponse({"error": f"Wiki 服务错误: {r.status_code}"}, status_code=r.status_code)
+            detail = ""
+            try:
+                detail = r.json().get("detail", "")
+            except Exception:
+                pass
+            if r.status_code in (502, 503):
+                msg = "LLM 后端不可用。请检查: 1) vLLM 是否启动 (docker compose --profile llm-qwen up -d)  2) RAG 服务是否正常"
+            elif r.status_code == 403:
+                msg = "Wiki 处于只读模式。在 Wiki 设置面板中切换为读写模式。"
+            else:
+                msg = f"Wiki 服务错误 ({r.status_code})"
+            if detail:
+                msg += f"\n\n详情: {detail}"
+            return JSONResponse({"error": msg}, status_code=r.status_code)
     except Exception as e:
+        if "502" in str(e) or "503" in str(e) or "unavailable" in str(e).lower():
+            return JSONResponse({"error": "LLM 后端不可用。请检查 vLLM 是否启动。\n\n启动命令: docker compose --profile llm-qwen up -d"}, status_code=502)
         return JSONResponse({"error": f"请求失败: {str(e)}"}, status_code=502)
 
 
