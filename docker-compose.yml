@@ -262,6 +262,7 @@ services:
       - ./data/comfyui_workflows:/comfyui_workflows:ro         # built-in workflow JSONs for browser UI
       - ./data/cookies:/cookies:ro                             # yt-dlp cookies (managed by ai_cookie_manager)
       - ${MEDIA_ROOT:-./data/media}:/media                     # media storage for downloads (NFS or local)
+      - ./.env:/app/.env-host:rw                              # wiki config toggle: sync WIKI_READ_ONLY to .env
     networks:
       - default
     depends_on:

@@ -1423,9 +1423,26 @@ async def api_wiki_status():
         return JSONResponse({"read_only": True, "error": "RAG service unreachable"})
 
 
+def _sync_env_file(key: str, value: str) -> None:
+    """Update a key=value in .env file (mounted at /app/.env-host)."""
+    env_path = Path("/app/.env-host")
+    if not env_path.is_file():
+        return
+    try:
+        content = env_path.read_text(encoding="utf-8")
+        if f"{key}=" in content:
+            import re
+            content = re.sub(rf"^{key}=.*$", f"{key}={value}", content, flags=re.MULTILINE)
+        else:
+            content = content.rstrip("\n") + f"\n{key}={value}\n"
+        env_path.write_text(content, encoding="utf-8")
+    except Exception:
+        pass  # non-fatal: runtime still updated via RAG endpoint
+
+
 @app.post("/api/wiki-config")
 async def api_wiki_config(request: dict):
-    """Proxy to Wiki config endpoint (toggle read-only, change model)."""
+    """Proxy to Wiki config endpoint (toggle read-only, change model). Also syncs to .env."""
     payload = {}
     if "read_only" in request:
         payload["read_only"] = request["read_only"]
@@ -1444,6 +1461,11 @@ async def api_wiki_config(request: dict):
                 json=payload,
             )
         if r.status_code == 200:
+            # Persist to .env so values survive container restarts
+            if "read_only" in request:
+                _sync_env_file("WIKI_READ_ONLY", str(request["read_only"]).lower())
+            if "llm_model" in request:
+                _sync_env_file("WIKI_LLM_MODEL", request["llm_model"])
             return JSONResponse(r.json())
         else:
             return JSONResponse({"error": f"Config update failed: {r.status_code}"}, status_code=r.status_code)
