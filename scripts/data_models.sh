@@ -370,17 +370,7 @@ _download_vllm_model() {
     local target_path="${MODELS_DIR}/${local_dir}"
 
     if [[ -d "$target_path" ]]; then
-        # Check if download looks complete (has config.json = model files present)
-        if [[ -f "${target_path}/config.json" ]]; then
-            log_info "Model already downloaded: ${target_path}"
-            echo -n "Re-download? (y/N): "
-            read -r confirm
-            if [[ ! "$confirm" =~ ^[Yy] ]]; then
-                return 0
-            fi
-        else
-            log_info "Resuming incomplete download: ${target_path}"
-        fi
+        log_info "Directory exists, resuming download: ${target_path}"
     fi
 
     log_info "Downloading ${model_name} (${size_hint})..."
@@ -398,7 +388,7 @@ _download_vllm_model() {
     fi
 
     if command -v huggingface-cli &>/dev/null; then
-        huggingface-cli download "$repo_id" --local-dir "$target_path"
+        huggingface-cli download "$repo_id" --local-dir "$target_path" --local-dir-use-symlinks False
     else
         python3 -c "
 from huggingface_hub import snapshot_download
