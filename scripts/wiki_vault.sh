@@ -326,22 +326,26 @@ wiki_vault_run() {
             done <<< "$vaults"
 
             echo ""
-            echo "Select vault (number or path):"
+            echo "Select vault:"
             local idx=1
             for vp in "${vault_array[@]}"; do
                 echo "  ${idx}) ${vp}"
                 idx=$((idx + 1))
             done
+            echo "  ${idx}) Custom path..."
             echo ""
             echo -n "Choice [1]: "
             read -r choice
             choice=${choice:-1}
 
-            # If input is a number, select from list; otherwise treat as path
-            if [[ "$choice" =~ ^[0-9]+$ ]]; then
+            if [[ "$choice" == "$idx" ]]; then
+                echo -n "Enter vault path: "
+                read -r vault_path
+            elif [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 && "$choice" -lt "$idx" ]]; then
                 vault_path="${vault_array[$((choice - 1))]}"
             else
-                vault_path="$choice"
+                log_error "Invalid choice: $choice"
+                return 1
             fi
         fi
     fi
@@ -393,9 +397,11 @@ wiki_vault_run() {
 
     # Interactive time window if not specified
     if [[ ${#windows[@]} -eq 0 ]]; then
+        local now_hm
+        now_hm=$(date +%H:%M)
         echo ""
         echo "Run only during specific hours? (e.g. off-peak electricity)"
-        echo -n "Start time [Enter=now, format HH:MM]: "
+        echo -n "Start time [${now_hm} = now, or Enter to run immediately]: "
         read -r win_start
         if [[ -n "$win_start" ]]; then
             echo -n "End time [format HH:MM, e.g. 06:30]: "
