@@ -369,16 +369,12 @@ _download_vllm_model() {
     read -r repo_id local_dir size_hint <<< "${VLLM_MODEL_REGISTRY[$model_name]}"
     local target_path="${MODELS_DIR}/${local_dir}"
 
-    if [[ -d "$target_path" ]]; then
-        log_info "Directory exists, resuming download: ${target_path}"
-    fi
-
     log_info "Downloading ${model_name} (${size_hint})..."
-    log_info "  Repo:  ${repo_id}"
+    log_info "  Repo:  https://huggingface.co/${repo_id}"
     log_info "  Local: ${target_path}"
     echo ""
 
-    # Ensure HF_TOKEN is exported for huggingface-cli
+    # Ensure HF_TOKEN is exported for authenticated downloads
     if [[ -n "$HF_TOKEN" ]]; then
         export HF_TOKEN
     else
@@ -387,14 +383,21 @@ _download_vllm_model() {
         echo ""
     fi
 
-    if command -v huggingface-cli &>/dev/null; then
-        huggingface-cli download "$repo_id" --local-dir "$target_path" --local-dir-use-symlinks False
+    # Use git clone with LFS — handles resume naturally
+    if [[ -d "$target_path/.git" ]]; then
+        log_info "Resuming git clone..."
+        (cd "$target_path" && git lfs pull)
     else
-        python3 -c "
-from huggingface_hub import snapshot_download
-snapshot_download(repo_id='${repo_id}', local_dir='${target_path}')
-print('Download complete: ${target_path}')
-"
+        # Remove incomplete non-git directory if it exists
+        if [[ -d "$target_path" ]]; then
+            log_warn "Removing incomplete download directory..."
+            rm -rf "$target_path"
+        fi
+        local clone_url="https://huggingface.co/${repo_id}"
+        if [[ -n "$HF_TOKEN" ]]; then
+            clone_url="https://oauth2:${HF_TOKEN}@huggingface.co/${repo_id}"
+        fi
+        git clone "$clone_url" "$target_path"
     fi
 
     if [[ $? -eq 0 ]]; then
