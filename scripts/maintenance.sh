@@ -119,11 +119,11 @@ Commands:
   System Maintenance:
     fix-permissions  Fix ownership/permissions on directories (default: data/)
     reset-router     Reset router database and Redis only
-    prepare          Download/manage models for ComfyUI or vLLM
-                     Usage: prepare [comfyui|vllm [--download <name>]]
-                       comfyui              Download ComfyUI preset models (~50 GB) via container setup.sh
-                       vllm                 Show configured model, list available models, switch instructions
-                       vllm --download <m>  Download a model (e.g. gemma)
+    prepare          Download/manage models
+                     Usage: prepare [comfyui|<model>]
+                       (no args)  Show vLLM models (installed + available to download)
+                       comfyui    Download ComfyUI preset models (~50 GB) via container setup.sh
+                       <model>    Download a vLLM model (e.g. gemma)
     rebuild-comfyui  Full ComfyUI rebuild from scratch:
                      wipes comfyui_workdir, re-clones all custom nodes (incl. MuseTalk),
                      re-runs setup.sh. Preserves model weights and git-tracked workflows.
@@ -136,9 +136,9 @@ Examples:
     $0 logs all                # Show logs from all containers sequentially
     $0 check-deps              # Verify all dependencies are ready
     $0 cleanall                # Full cleanup (data + models)
+    $0 prepare                 # Show vLLM models (installed + available to download)
     $0 prepare comfyui         # Download ComfyUI preset models (~50 GB)
-    $0 prepare vllm            # Show vLLM model info and switch instructions
-    $0 prepare vllm --download gemma  # Download Gemma 4 26B AWQ (~16 GB)
+    $0 prepare gemma           # Download Gemma 4 26B AWQ (~16 GB)
     $0 clean-data              # Clean runtime data only
     $0 rebuild-comfyui         # Wipe workdir + re-clone nodes + re-run setup.sh
     $0 wiki-vault status                          # Show all vaults and progress
