@@ -370,12 +370,16 @@ _download_vllm_model() {
     local target_path="${MODELS_DIR}/${local_dir}"
 
     if [[ -d "$target_path" ]]; then
-        log_warn "Model directory already exists: ${target_path}"
-        echo -n "Re-download? (y/N): "
-        read -r confirm
-        if [[ ! "$confirm" =~ ^[Yy] ]]; then
-            log_info "Cancelled."
-            return 0
+        # Check if download looks complete (has config.json = model files present)
+        if [[ -f "${target_path}/config.json" ]]; then
+            log_info "Model already downloaded: ${target_path}"
+            echo -n "Re-download? (y/N): "
+            read -r confirm
+            if [[ ! "$confirm" =~ ^[Yy] ]]; then
+                return 0
+            fi
+        else
+            log_info "Resuming incomplete download: ${target_path}"
         fi
     fi
 
