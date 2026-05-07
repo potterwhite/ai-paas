@@ -384,6 +384,15 @@ _download_vllm_model() {
     log_info "  Local: ${target_path}"
     echo ""
 
+    # Ensure HF_TOKEN is exported for huggingface-cli
+    if [[ -n "$HF_TOKEN" ]]; then
+        export HF_TOKEN
+    else
+        log_warn "HF_TOKEN not set. Download will be slower (unauthenticated)."
+        log_warn "Set HF_TOKEN in .env for faster downloads."
+        echo ""
+    fi
+
     if command -v huggingface-cli &>/dev/null; then
         huggingface-cli download "$repo_id" --local-dir "$target_path"
     else
