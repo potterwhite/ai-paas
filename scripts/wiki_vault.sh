@@ -326,7 +326,7 @@ wiki_vault_run() {
             done <<< "$vaults"
 
             echo ""
-            echo "Select vault:"
+            echo "Select vault (number or path):"
             local idx=1
             for vp in "${vault_array[@]}"; do
                 echo "  ${idx}) ${vp}"
@@ -336,7 +336,13 @@ wiki_vault_run() {
             echo -n "Choice [1]: "
             read -r choice
             choice=${choice:-1}
-            vault_path="${vault_array[$((choice - 1))]}"
+
+            # If input is a number, select from list; otherwise treat as path
+            if [[ "$choice" =~ ^[0-9]+$ ]]; then
+                vault_path="${vault_array[$((choice - 1))]}"
+            else
+                vault_path="$choice"
+            fi
         fi
     fi
 
@@ -370,13 +376,40 @@ wiki_vault_run() {
         _init_wiki "$vault_path"
     fi
 
+    # Pre-flight: check RAG + LLM availability
+    local rag_url
+    rag_url=$(_read_env "RAG_BASE_URL" "http://localhost:8081")
+    if ! curl -sf "${rag_url}/v1/health" >/dev/null 2>&1; then
+        log_error "RAG service is not reachable at ${rag_url}"
+        log_error "Start it first: docker compose up -d rag"
+        return 1
+    fi
+    # Quick LLM probe: call router health directly
+    local router_url
+    router_url=$(_read_env "ROUTER_BASE_URL" "http://localhost:4000")
+    if ! curl -sf "${router_url}/v1/health" >/dev/null 2>&1; then
+        log_warn "Router is not reachable at ${router_url}. Ingest will fail if LLM is down."
+    fi
+
     # Interactive time window if not specified
     if [[ ${#windows[@]} -eq 0 ]]; then
         echo ""
-        echo -n "Time window [Enter=24/7, e.g. 22:00-06:30]: "
-        read -r window_input
-        if [[ -n "$window_input" ]]; then
-            windows+=("$window_input")
+        echo "Run only during specific hours? (e.g. off-peak electricity)"
+        echo -n "Start time [Enter=now, format HH:MM]: "
+        read -r win_start
+        if [[ -n "$win_start" ]]; then
+            echo -n "End time [format HH:MM, e.g. 06:30]: "
+            read -r win_end
+            if [[ -n "$win_end" ]]; then
+                windows+=("${win_start}-${win_end}")
+                # Explain overnight windows
+                local sh=${win_start%%:*} sm=${win_start##*:} eh=${win_end%%:*} em=${win_end##*:}
+                local start_min=$((10#$sh * 60 + 10#$sm))
+                local end_min=$((10#$eh * 60 + 10#$em))
+                if [[ $start_min -gt $end_min ]]; then
+                    echo "  -> Overnight window: runs from ${win_start} to midnight, then midnight to ${win_end}"
+                fi
+            fi
         fi
     fi
 
