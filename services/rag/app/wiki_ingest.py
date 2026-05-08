@@ -244,8 +244,10 @@ filename: 页面文件名.md
     return prompt
 
 
-async def _call_llm(prompt: str, max_tokens: int = 1600) -> str:
+async def _call_llm(prompt: str, max_tokens: int | None = None) -> str:
     """Call LLM via router."""
+    if max_tokens is None:
+        max_tokens = settings.WIKI_MAX_OUTPUT_TOKENS
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             f"{settings.ROUTER_BASE_URL}/v1/chat/completions",
@@ -260,7 +262,10 @@ async def _call_llm(prompt: str, max_tokens: int = 1600) -> str:
             },
         )
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        data = response.json()
+        if "error" in data:
+            raise RuntimeError(f"LLM error: {data['error'].get('message', data['error'])}")
+        return data["choices"][0]["message"]["content"]
 
 
 async def _update_index(new_pages: list[WikiPage]) -> None:
@@ -461,7 +466,7 @@ class WikiIngest:
             prompt = _build_ingest_prompt(schema, chunk, index_content, chunk_info)
 
             try:
-                response = await _call_llm(prompt, max_tokens=1600)
+                response = await _call_llm(prompt)
             except Exception as e:
                 if i == 0:
                     raise

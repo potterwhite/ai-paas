@@ -41,7 +41,9 @@ async def _read_file(path) -> str:
         return await f.read()
 
 
-async def _call_llm(prompt: str, max_tokens: int = 1600) -> str:
+async def _call_llm(prompt: str, max_tokens: int | None = None) -> str:
+    if max_tokens is None:
+        max_tokens = settings.WIKI_MAX_OUTPUT_TOKENS
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
             f"{settings.ROUTER_BASE_URL}/v1/chat/completions",
@@ -56,7 +58,10 @@ async def _call_llm(prompt: str, max_tokens: int = 1600) -> str:
             },
         )
         response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+        data = response.json()
+        if "error" in data:
+            raise RuntimeError(f"LLM error: {data['error'].get('message', data['error'])}")
+        return data["choices"][0]["message"]["content"]
 
 
 async def _select_pages(schema: str, question: str, index: str, hot: str) -> list[str]:
@@ -153,7 +158,7 @@ async def _generate_answer(
 4. 如果 wiki 中没有足够信息，明确说明"Wiki 中未找到关于 [主题] 的信息"
 5. 回答末尾列出所有引用的来源
 """
-    answer = await _call_llm(prompt, max_tokens=1600)
+    answer = await _call_llm(prompt)
 
     # Extract citations from answer
     citations = []

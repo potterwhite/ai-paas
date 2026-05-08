@@ -73,6 +73,10 @@ class Settings(BaseSettings):
         default=3500,
         description="Max tokens per source document chunk for ingest",
     )
+    WIKI_MAX_OUTPUT_TOKENS: int = Field(
+        default=1600,
+        description="Max output tokens for LLM calls (must fit within model context window)",
+    )
     WIKI_BATCH_CONCURRENCY: int = Field(
         default=3,
         description="Max concurrent ingest operations for batch mode",

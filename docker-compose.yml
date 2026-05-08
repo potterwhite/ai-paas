@@ -42,9 +42,9 @@ services:
       - --model
       - /models/qwen2.5-32b-instruct-awq  # Production 32B AWQ model (upgraded 2026-04-02)
       - --gpu-memory-utilization
-      - "0.95"  # Reduced from 0.985: leave VRAM headroom for RAG/other services
+      - "0.98"  # Increased from 0.95: Qwen 32B needs more VRAM for KV cache
       - --max-model-len
-      - "9600"  # Reduced from 10080: align with lower GPU memory utilization
+      - "8192"  # Reduced from 9600: fit in VRAM with vLLM 0.20.1 overhead
       - --trust-remote-code
       - --enable-auto-tool-choice        # Required for OpenClaw/agent tool calls
       - --tool-call-parser
@@ -325,6 +325,8 @@ services:
       - ROUTER_API_KEY=${LITELLM_MASTER_KEY:-sk-change-me}
       - WIKI_READ_ONLY=${WIKI_READ_ONLY:-false}
       - WIKI_LLM_MODEL=${WIKI_LLM_MODEL:-qwen}
+      - WIKI_MAX_CHUNK_TOKENS=${WIKI_MAX_CHUNK_TOKENS:-3500}
+      - WIKI_MAX_OUTPUT_TOKENS=${WIKI_MAX_OUTPUT_TOKENS:-1600}
     depends_on:
       - router
     networks:
