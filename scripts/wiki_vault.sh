@@ -395,6 +395,46 @@ wiki_vault_run() {
         log_warn "Router is not reachable at ${router_url}. Ingest will fail if LLM is down."
     fi
 
+    # Auto-disable WIKI_READ_ONLY for batch ingest
+    # Use globals so the EXIT trap can access them after function returns
+    _WIKI_RESTORE_RO="false"
+    _WIKI_RAG_URL="${rag_url}"
+    _WIKI_RAG_KEY="sk-rag-default"
+    local wiki_status
+    wiki_status=$(curl -sf "${rag_url}/v1/wiki/status" 2>/dev/null) || true
+    if echo "$wiki_status" | grep -q '"read_only": true'; then
+        _WIKI_RESTORE_RO="true"
+        log_info "Wiki is in read-only mode. Temporarily disabling for batch ingest..."
+        curl -sf -X POST "${rag_url}/v1/wiki/config" \
+            -H "Authorization: Bearer ${_WIKI_RAG_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{"read_only": false}' >/dev/null 2>&1
+        # Also sync .env
+        if [[ -f "$ENV_FILE" ]]; then
+            sed -i 's|^WIKI_READ_ONLY=true|WIKI_READ_ONLY=false|' "$ENV_FILE"
+        fi
+    fi
+
+    # Auto-detect running vLLM model and sync WIKI_LLM_MODEL
+    local wiki_llm_model
+    wiki_llm_model=$(_read_env "WIKI_LLM_MODEL" "qwen")
+    local active_model
+    active_model=$(curl -sf "${router_url}/v1/models" \
+        -H "Authorization: Bearer ${_WIKI_RAG_KEY}" 2>/dev/null \
+        | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('active_model',''))" 2>/dev/null) || true
+    if [[ -n "$active_model" && "$active_model" != "$wiki_llm_model" ]]; then
+        log_warn "WIKI_LLM_MODEL (${wiki_llm_model}) != running model (${active_model}). Auto-switching..."
+        # Update RAG runtime config
+        curl -sf -X POST "${rag_url}/v1/wiki/config" \
+            -H "Authorization: Bearer ${_WIKI_RAG_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"llm_model\": \"${active_model}\"}" >/dev/null 2>&1
+        # Sync .env
+        if [[ -f "$ENV_FILE" ]]; then
+            sed -i "s|^WIKI_LLM_MODEL=.*|WIKI_LLM_MODEL=${active_model}|" "$ENV_FILE"
+        fi
+    fi
+
     # Interactive time window if not specified
     if [[ ${#windows[@]} -eq 0 ]]; then
         local now_hm
@@ -403,19 +443,21 @@ wiki_vault_run() {
         echo "Run only during specific hours? (e.g. off-peak electricity)"
         echo -n "Start time [${now_hm} = now, or Enter to run immediately]: "
         read -r win_start
-        if [[ -n "$win_start" ]]; then
-            echo -n "End time [format HH:MM, e.g. 06:30]: "
-            read -r win_end
-            if [[ -n "$win_end" ]]; then
-                windows+=("${win_start}-${win_end}")
-                # Explain overnight windows
-                local sh=${win_start%%:*} sm=${win_start##*:} eh=${win_end%%:*} em=${win_end##*:}
-                local start_min=$((10#$sh * 60 + 10#$sm))
-                local end_min=$((10#$eh * 60 + 10#$em))
-                if [[ $start_min -gt $end_min ]]; then
-                    echo "  -> Overnight window: runs from ${win_start} to midnight, then midnight to ${win_end}"
-                fi
+        echo -n "End time [format HH:MM, e.g. 06:30, or Enter for no limit]: "
+        read -r win_end
+        if [[ -n "$win_start" && -n "$win_end" ]]; then
+            windows+=("${win_start}-${win_end}")
+            # Explain overnight windows
+            local sh=${win_start%%:*} sm=${win_start##*:} eh=${win_end%%:*} em=${win_end##*:}
+            local start_min=$((10#$sh * 60 + 10#$sm))
+            local end_min=$((10#$eh * 60 + 10#$em))
+            if [[ $start_min -gt $end_min ]]; then
+                echo "  -> Overnight window: runs from ${win_start} to midnight, then midnight to ${win_end}"
             fi
+        elif [[ -n "$win_end" ]]; then
+            # Start now, end at specified time
+            windows+=("${now_hm}-${win_end}")
+            echo "  -> Runs from now (${now_hm}) until ${win_end}"
         fi
     fi
 
@@ -432,6 +474,20 @@ wiki_vault_run() {
         fi
     fi
 
+    # Restore read-only mode on exit (normal or Ctrl+C)
+    _restore_read_only() {
+        if [[ "${_WIKI_RESTORE_RO:-false}" == "true" ]]; then
+            log_info "Restoring wiki read-only mode..."
+            curl -sf -X POST "${_WIKI_RAG_URL}/v1/wiki/config" \
+                -H "Authorization: Bearer ${_WIKI_RAG_KEY}" \
+                -H "Content-Type: application/json" \
+                -d '{"read_only": true}' >/dev/null 2>&1
+            if [[ -f "${SCRIPT_DIR}/.env" ]]; then
+                sed -i 's|^WIKI_READ_ONLY=false|WIKI_READ_ONLY=true|' "${SCRIPT_DIR}/.env"
+            fi
+        fi
+    }
+
     # Build python command
     local cmd="python3 ${BATCH_SCRIPT} run --vault-path ${vault_path}"
     for w in "${windows[@]}"; do
@@ -439,6 +495,11 @@ wiki_vault_run() {
     done
 
     if [[ "$bg_mode" == "yes" ]]; then
+        # In background mode, pass restore info to the Python script
+        # (shell trap won't work since the shell exits immediately)
+        if [[ "${_WIKI_RESTORE_RO:-false}" == "true" ]]; then
+            cmd+=" --restore-read-only"
+        fi
         local log_file="${LOG_DIR}/wiki-batch.log"
         mkdir -p "$LOG_DIR"
         nohup $cmd >> "$log_file" 2>&1 &
@@ -449,6 +510,7 @@ wiki_vault_run() {
         log_info "Check status: ./paas-controller.sh wiki-vault status"
         log_info "Stop: kill ${pid}"
     else
+        trap _restore_read_only EXIT
         echo ""
         log_info "Running in foreground (Ctrl+C to stop)..."
         $cmd

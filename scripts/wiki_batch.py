@@ -193,6 +193,22 @@ def cmd_run(args):
     for w in args.window:
         windows.append(_parse_window(w))
 
+    # Restore read-only mode on exit if requested (for background mode)
+    if args.restore_read_only:
+        import atexit
+        def _restore_ro():
+            try:
+                url = f"{RAG_BASE_URL}/v1/wiki/config"
+                data = json.dumps({"read_only": True}).encode("utf-8")
+                req = Request(url, data=data, method="POST")
+                req.add_header("Authorization", f"Bearer {RAG_API_KEY}")
+                req.add_header("Content-Type", "application/json")
+                urlopen(req, timeout=10)
+                print("[*] Restored wiki read-only mode.")
+            except Exception:
+                pass
+        atexit.register(_restore_ro)
+
     # Load or create state
     state = _load_state(vault_path)
     completed = set(state.get("completed", []))
@@ -254,7 +270,7 @@ def cmd_run(args):
                 break
 
         # Ingest
-        progress = f"[{state['processed'] + 1}/{state['total']}]"
+        progress = f"[{i + 1}/{len(remaining)}]"
         print(f"{progress} Ingesting: {doc_path} ... ", end="", flush=True)
 
         result = _ingest_one(doc_path)
@@ -297,6 +313,8 @@ def main():
                         help="Time window HH:MM-HH:MM (can specify multiple)")
     parser.add_argument("--rag-url", default=RAG_BASE_URL,
                         help=f"RAG service URL (default: {RAG_BASE_URL})")
+    parser.add_argument("--restore-read-only", action="store_true",
+                        help="Restore WIKI_READ_ONLY=true on exit (for background mode)")
 
     args = parser.parse_args()
 
