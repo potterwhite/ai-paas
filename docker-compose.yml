@@ -8,7 +8,7 @@
   # ============================================================
 x-vllm-base: &vllm-base
   image: vllm/vllm-openai:latest
-  restart: "no"   # Profile-gated, managed by Router — not auto-restarted by Docker daemon
+  restart: unless-stopped   # Auto-restart on reboot; Router uses Docker SDK stop/start (not compose)
   ports:
     - "9997:8000"  # External 9997 (backward compat), internal vLLM default 8000
   environment:

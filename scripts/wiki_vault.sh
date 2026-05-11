@@ -402,7 +402,7 @@ wiki_vault_run() {
     _WIKI_RAG_KEY="sk-rag-default"
     local wiki_status
     wiki_status=$(curl -sf "${rag_url}/v1/wiki/status" 2>/dev/null) || true
-    if echo "$wiki_status" | grep -q '"read_only": true'; then
+    if echo "$wiki_status" | grep -qP '"read_only"\s*:\s*true'; then
         _WIKI_RESTORE_RO="true"
         log_info "Wiki is in read-only mode. Temporarily disabling for batch ingest..."
         curl -sf -X POST "${rag_url}/v1/wiki/config" \
