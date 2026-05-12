@@ -179,14 +179,16 @@ prepare_comfyui() {
     echo "  Host models dir : $(realpath "${MODELS_DIR}/comfyui" 2>/dev/null || echo "${MODELS_DIR}/comfyui")"
     echo ""
     echo "  Model groups to download:"
-    echo "    1. Custom nodes          — 4 ComfyUI extensions"
+    echo "    1. Custom nodes          — 5 ComfyUI extensions (incl. MuseTalk)"
     echo "    2. CogVideoX-5B          — ~26 GB (transformer + VAE + T5-XXL)"
     echo "    3. LivePortrait           — ~350 MB (digital human)"
     echo "    4. Stable Diffusion 1.5   — ~4 GB"
     echo "    5. SDXL Base 1.0          — ~7 GB"
     echo "    6. Workflow sync          — copy to Browse UI"
+    echo "    7. (reserved)"
+    echo "    8. MuseTalk               — ~4.2 GB (UNet + Whisper + SD-VAE + DWPose)"
     echo ""
-    echo "  Total  : ~45 GB — existing files with valid checksums are skipped"
+    echo "  Total  : ~50 GB — existing files with valid checksums are skipped"
     echo ""
 
     if ! confirm "Proceed with download?"; then
@@ -356,15 +358,79 @@ prepare_comfyui() {
     fi
 }
 
-# Show vLLM model info: currently loaded model and all available models in MODELS_DIR
+# vLLM model registry: name → (huggingface_repo_id, local_dir_name, size_hint)
+declare -A VLLM_MODEL_REGISTRY=(
+    [gemma]="cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit|gemma-4-26B-A4B-awq|~16GB"
+)
+
+_download_vllm_model() {
+    local model_name="$1"
+    local IFS='|'
+    read -r repo_id local_dir size_hint <<< "${VLLM_MODEL_REGISTRY[$model_name]}"
+    local target_path="${MODELS_DIR}/${local_dir}"
+
+    log_info "Downloading ${model_name} (${size_hint})..."
+    log_info "  Repo:  https://huggingface.co/${repo_id}"
+    log_info "  Local: ${target_path}"
+    echo ""
+
+    # Ensure HF_TOKEN is exported for authenticated downloads
+    if [[ -n "$HF_TOKEN" ]]; then
+        export HF_TOKEN
+    else
+        log_warn "HF_TOKEN not set. Download will be slower (unauthenticated)."
+        log_warn "Set HF_TOKEN in .env for faster downloads."
+        echo ""
+    fi
+
+    # Use git clone with LFS — handles resume naturally
+    if [[ -d "$target_path/.git" ]]; then
+        log_info "Resuming git clone..."
+        (cd "$target_path" && git lfs pull)
+    else
+        # Remove incomplete non-git directory if it exists
+        if [[ -d "$target_path" ]]; then
+            log_warn "Removing incomplete download directory..."
+            rm -rf "$target_path"
+        fi
+        local clone_url="https://huggingface.co/${repo_id}"
+        if [[ -n "$HF_TOKEN" ]]; then
+            clone_url="https://oauth2:${HF_TOKEN}@huggingface.co/${repo_id}"
+        fi
+        git clone "$clone_url" "$target_path"
+    fi
+
+    if [[ $? -eq 0 ]]; then
+        log_info "Download complete: ${target_path}"
+        echo ""
+        echo "To use: docker compose --profile llm-${model_name} up -d"
+    else
+        log_error "Download failed. Check network and try again."
+        return 1
+    fi
+}
+
+# Show vLLM model info and optionally download models
 prepare_vllm() {
     check_dir
 
-    # Detect current model from docker-compose.yml
+    local model_name="${1:-}"
+
+    # If a model name is given, download it directly
+    if [[ -n "$model_name" ]]; then
+        if [[ -z "${VLLM_MODEL_REGISTRY[$model_name]+x}" ]]; then
+            log_error "Unknown model: ${model_name}"
+            log_error "Available: ${!VLLM_MODEL_REGISTRY[*]}"
+            return 1
+        fi
+        _download_vllm_model "$model_name"
+        return $?
+    fi
+
+    # Info mode: show current + available + download options
     local compose_file="${DOCKER_COMPOSE_FILE}"
     local current_model=""
     if [[ -f "$compose_file" ]]; then
-        # Extract the value after '- --model' line (next non-empty line)
         current_model=$(awk '/- --model/{found=1; next} found && /^[[:space:]]*-/{gsub(/^[[:space:]]*-[[:space:]]*/,""); print; exit}' "$compose_file")
     fi
 
@@ -379,8 +445,8 @@ prepare_vllm() {
     fi
     echo ""
 
-    # List all model directories (exclude comfyui subdir)
-    log_info "Available models in ${MODELS_DIR}:"
+    # List installed model directories (exclude comfyui subdir)
+    log_info "Installed models:"
     local found=false
     local i=1
     for d in "${MODELS_DIR}"/*/; do
@@ -401,36 +467,42 @@ prepare_vllm() {
 
     if [[ "$found" == "false" ]]; then
         log_warn "No model directories found in ${MODELS_DIR} (excluding comfyui/)."
-        echo ""
-        log_info "To download a vLLM model, see: docs/zh/1-for-ai/vllm-model-download.md"
-        return 0
     fi
 
+    # Show available downloads
+    echo ""
+    log_info "Available to download:"
+    for key in "${!VLLM_MODEL_REGISTRY[@]}"; do
+        local IFS='|'
+        read -r repo_id local_dir size_hint <<< "${VLLM_MODEL_REGISTRY[$key]}"
+        if [[ -d "${MODELS_DIR}/${local_dir}" ]]; then
+            echo "  ${key}  ${repo_id}  (${size_hint})  [installed]"
+        else
+            echo "  ${key}  ${repo_id}  (${size_hint})"
+        fi
+    done
+    echo ""
+    echo "  Download: prepare <name>"
+    echo "  Example:  prepare gemma"
     echo ""
     log_info "To switch models:"
-    echo "  1. Edit docker-compose.yml — change the '- /models/<name>' line under vllm command"
-    echo "  2. Run: docker compose up -d --force-recreate vllm"
-    echo ""
-    log_info "For download instructions: docs/zh/1-for-ai/vllm-model-download.md"
+    echo "  docker compose --profile llm-<name> up -d"
 }
 
-# Dispatcher: prepare [comfyui|vllm]
+# Dispatcher: prepare [comfyui|<model>]
 prepare() {
-    local subcommand="${1:-}"
+    local arg="${1:-}"
 
-    case "$subcommand" in
-        comfyui|"")
+    case "$arg" in
+        comfyui)
             prepare_comfyui
             ;;
-        vllm)
+        "")
             prepare_vllm
             ;;
         *)
-            log_error "Unknown prepare subcommand: $subcommand"
-            echo "Usage: prepare [comfyui|vllm]"
-            echo "  comfyui  Download ComfyUI preset models via container setup.sh (default)"
-            echo "  vllm     Show current vLLM model and available models; switch instructions"
-            return 1
+            # Treat as vLLM model name (e.g. prepare gemma)
+            prepare_vllm "$arg"
             ;;
     esac
 }
@@ -464,4 +536,51 @@ cleanall() {
 
     log_info "Full cleanup complete."
     log_warn "Please re-download required models before starting services again."
+}
+
+# Rebuild ComfyUI from scratch: wipe workdir → restart container → run setup.sh
+# Preserves: models (skipped if checksums pass), git-tracked workflows & yaml
+# Destroys:  comfyui_workdir (custom nodes, ComfyUI state), generated media
+rebuild_comfyui() {
+    check_dir
+
+    echo ""
+    log_warn "REBUILD ComfyUI — this will:"
+    echo "  WIPE  : data/comfyui_workdir/  (custom nodes, ComfyUI internal state)"
+    echo "  KEEP  : models/comfyui/        (model weights — skipped if checksums pass)"
+    echo "  KEEP  : data/comfyui_workflows/ (git-tracked workflow JSONs and media)"
+    echo "  KEEP  : data/comfyui_extra_model_paths.yaml"
+    echo ""
+    echo "  After wipe, setup.sh runs inside the container to:"
+    echo "    - Re-clone all 5 custom nodes (ComfyUI-MuseTalk etc.)"
+    echo "    - Download any missing models (~50 GB total, skips existing)"
+    echo ""
+
+    if ! confirm "Proceed with ComfyUI rebuild?"; then
+        log_info "Rebuild cancelled."
+        return 0
+    fi
+
+    # Step 1: Stop ComfyUI container
+    log_info "Stopping ComfyUI container..."
+    cd "${SCRIPT_DIR}"
+    docker compose -f "${DOCKER_COMPOSE_FILE}" --profile comfyui stop comfyui 2>/dev/null || true
+    if docker ps -a --format "{{.Names}}" | grep -q "^ai_comfyui$"; then
+        docker rm ai_comfyui 2>/dev/null || true
+    fi
+
+    # Step 2: Wipe comfyui_workdir (custom nodes + ComfyUI state)
+    local workdir="${DATA_DIR}/comfyui_workdir"
+    if [[ -d "$workdir" ]]; then
+        log_info "Wiping comfyui_workdir (fixing permissions first)..."
+        fix_permissions "$workdir"
+        rm -rf "${workdir:?}"
+        log_info "comfyui_workdir wiped."
+    fi
+    mkdir -p "$workdir"
+
+    # Step 3: Re-run prepare_comfyui (starts container + runs setup.sh)
+    echo ""
+    log_info "Launching container and running setup.sh..."
+    prepare_comfyui
 }

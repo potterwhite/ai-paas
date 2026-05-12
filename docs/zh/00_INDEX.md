@@ -41,3 +41,4 @@
 | 文档 | 用途 |
 |---|---|
 | [`en/4-for-beginner/quick_start.md`](../en/4-for-beginner/quick_start.md) | 前置条件、启动服务栈、API 密钥发放、常见首次错误 |
+| [`zh/4-for-beginner/comfyui_workflows_guide.md`](4-for-beginner/comfyui_workflows_guide.md) | ⭐ ComfyUI 6 个内置工作流完整说明 — 是什么、为什么、怎么用、互补关系 |

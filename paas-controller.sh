@@ -34,6 +34,7 @@ source "${SCRIPT_DIR}/scripts/service.sh"
 source "${SCRIPT_DIR}/scripts/monitoring.sh"
 source "${SCRIPT_DIR}/scripts/data_models.sh"
 source "${SCRIPT_DIR}/scripts/maintenance.sh"
+source "${SCRIPT_DIR}/scripts/wiki_vault.sh"
 
 # Main command dispatcher
 main() {
@@ -51,11 +52,20 @@ main() {
         start)
             start_services
             ;;
+        start-all)
+            start_all_services
+            ;;
         stop)
             stop_services
             ;;
+        stop-all)
+            stop_all_services
+            ;;
         restart)
             restart_services
+            ;;
+        restart-all)
+            restart_all_services
             ;;
         clean-data)
             clean_data
@@ -76,11 +86,18 @@ main() {
             shift
             prepare "$@"
             ;;
+        rebuild-comfyui)
+            rebuild_comfyui
+            ;;
         fix-permissions)
             fix_permissions
             ;;
         reset-router)
             reset_router
+            ;;
+        wiki-vault)
+            shift
+            wiki_vault "$@"
             ;;
         help|--help|-h)
             show_help

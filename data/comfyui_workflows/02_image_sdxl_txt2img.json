@@ -36,8 +36,8 @@
       "properties": {},
       "widgets_values": [
         1024, 1024, 0, 0, 1024, 1024,
-        "a beautiful sunset over the ocean, golden hour, photorealistic, 8k, masterpiece, cinematic lighting",
-        "a beautiful sunset over the ocean, golden hour, photorealistic, 8k, masterpiece, cinematic lighting"
+        "a futuristic coastal megacity at sunset, flying cars, dense city, cinematic scene",
+        "ultra detailed, photorealistic, 8k, volumetric lighting, reflections, sharp focus, intricate details"
       ]
     },
     {
@@ -50,8 +50,8 @@
       "properties": {},
       "widgets_values": [
         1024, 1024, 0, 0, 1024, 1024,
-        "bad quality, blurry, deformed, watermark, nsfw",
-        "bad quality, blurry, deformed, watermark, nsfw"
+        "low quality, bad composition, unrealistic scene",
+        "blurry, noise, bad anatomy, deformed, watermark, text"
       ]
     },
     {

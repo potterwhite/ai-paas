@@ -13,33 +13,18 @@
 
 - **MCP/Skills 集成**：将 MCP server 对接到 vLLM 的 tool calling 能力（`--enable-auto-tool-choice --tool-call-parser hermes`），使 OpenClaw 能使用外部工具
 
+---
+
 ### 待解决问题
 
-- **yt-dlp cookies 续期** ✅ 已实现：`ai_cookie_manager` sidecar 容器（Playwright + noVNC），自动每 6 小时刷新。待部署测试。
-  - 启动：`docker compose --profile cookies up -d`
-  - 首次登录：`http://localhost:6901`（noVNC → YouTube 登录）
-  - 健康检查：`curl http://localhost:6902/health`
+- [ ] **MuseTalk mmcv._ext 卡点**（用户自行处理）：ComfyUI-MuseTalk 节点 import 时需要 mmcv C++ CUDA extension，mmcv-lite 不含，容器内无 nvcc 无法编译。所有 Python 层 patch 已完成并固化到 setup.sh。详见 PKB: `plan-DEPLOY-musetalk-installation.md`
 
-### 多模型支持后续
+- [ ] **目录选择器懒加载**：`http://192.168.0.19:8888/download` 目录选择器一次性全扫 300 条 cap 导致 tv 等目录被截断消失。需改为先显示 lv1 顶层目录，点击展开再加载子目录。
 
-- [ ] Gemma 4 26B A4B AWQ 量化：对 `/models/gemma-4-26B-A4B/`（BF16 ~50GB）做 AWQ 4-bit 量化，输出到 `/models/gemma-4-26B-A4B-awq/`，然后创建 vllm-gemma 容器并测试切换
+- [ ] **Whisper 替代模型**：将 [此文章](https://mp.weixin.qq.com/s/yqR1bC72Cvh1tjPD0eP6rw) 的模型集成为 Whisper 替代，前端页面支持选择使用 Whisper 或新模型。
 
 ---
 
-### Phase 4 补完
+### 多模型支持后续
 
-（无 — Phase 4 补完已完成并归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-07.md`）
-
-（2026-04-09 全链路修复已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-09.md`）
-
-（2026-04-09 MODELS_PATH 根因修复 + 硬编码路径清理已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-09.md`）
-
-（2026-04-12 release-please + license header + comfyUI 工作流浏览器等已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
-
-（2026-04-13 ComfyUI 工作流导入修复 + 内置工作流原生浏览已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
-
-### paas-controller.sh 改进
-
-（2026-04-13 `prepare` 下载 UX 全面改进已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
-
-（2026-04-13 CogVideoX latent_rgb_factors_reshape 修复已归档 ✅，详见 `task-logs/NEED_TO_DO_ARCHIVED_2026-04-13.md`）
+- [ ] **Gemma 4 26B AWQ 量化**：对 `/models/gemma-4-26B-A4B/`（BF16 ~50GB）做 AWQ 4-bit 量化，输出到 `/models/gemma-4-26B-A4B-awq/`，然后创建 vllm-gemma 容器并测试切换

@@ -36,11 +36,12 @@ from app.core.router_engine import get_active_vllm_base_url
 router = APIRouter()
 
 # Build alias map dynamically from VLLM_MODELS config
-# e.g. {"qwen": "/models/qwen2.5-32b-instruct-awq", "gemma": "/models/gemma-4-26B-A4B-awq"}
+# e.g. {"qwen": "/models/...", "qwen-32b": "/models/...", "gemma": "/models/...", "gemma-4-26b": "/models/..."}
 MODEL_ALIASES: dict[str, str] = {}
 for _mid, _cfg in settings.VLLM_MODELS.items():
+    MODEL_ALIASES[_mid] = _cfg["model_path"]  # model ID (e.g. "qwen-32b")
     for _alias in _cfg.get("aliases", []):
-        MODEL_ALIASES[_alias] = _cfg["model_path"]
+        MODEL_ALIASES[_alias] = _cfg["model_path"]  # aliases (e.g. "qwen")
 
 RESOLVE_MODEL = lambda m: MODEL_ALIASES.get(m, m)
 

@@ -46,3 +46,21 @@ fi
 echo "[pre-start] Running ComfyUI auto-setup (nodes + models)..."
 bash "$SETUP_SCRIPT"
 echo "[pre-start] Setup complete — handing off to ComfyUI."
+echo "[pre-start] Syncing built-in workflows to Browse UI..."
+WF_SRC="/root/ComfyUI/workflows"
+WF_DST="/root/ComfyUI/user/default/workflows"
+if [ -d "$WF_SRC" ] && ls "$WF_SRC"/*.json >/dev/null 2>&1; then
+    mkdir -p "$WF_DST"
+    for wf in "$WF_SRC"/*.json; do
+        cp -f "$wf" "$WF_DST/" 2>/dev/null || true
+    done
+    echo "[pre-start] Workflows synced."
+fi
+
+echo "[pre-start] Syncing workflow default images to ComfyUI input dir..."
+INPUT_DIR="/root/ComfyUI/input"
+mkdir -p "$INPUT_DIR"
+for img in "$WF_SRC"/*.png "$WF_SRC"/*.jpg "$WF_SRC"/*.jpeg "$WF_SRC"/*.webp "$WF_SRC"/*.mp4; do
+    [ -f "$img" ] && cp -f "$img" "$INPUT_DIR/" 2>/dev/null || true
+done
+echo "[pre-start] Default images + videos synced."

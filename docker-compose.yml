@@ -8,7 +8,7 @@
   # ============================================================
 x-vllm-base: &vllm-base
   image: vllm/vllm-openai:latest
-  restart: "no"   # Profile-gated, managed by Router — not auto-restarted by Docker daemon
+  restart: unless-stopped   # Auto-restart on reboot; Router uses Docker SDK stop/start (not compose)
   ports:
     - "9997:8000"  # External 9997 (backward compat), internal vLLM default 8000
   environment:
@@ -42,9 +42,9 @@ services:
       - --model
       - /models/qwen2.5-32b-instruct-awq  # Production 32B AWQ model (upgraded 2026-04-02)
       - --gpu-memory-utilization
-      - "0.985"  # With VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1: accounts for CUDA graph pool (~1GB); 23.56*0.985=23.2GB < 23.3GB free
+      - "0.98"  # Increased from 0.95: Qwen 32B needs more VRAM for KV cache
       - --max-model-len
-      - "10080"  # Reduced from 10800: with VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1 the KV cache ceiling dropped; 10080 is vLLM's suggested max
+      - "8192"  # Reduced from 9600: fit in VRAM with vLLM 0.20.1 overhead
       - --trust-remote-code
       - --enable-auto-tool-choice        # Required for OpenClaw/agent tool calls
       - --tool-call-parser
@@ -55,10 +55,11 @@ services:
       - "8000"
 
   # ============================================================
-  # 1b. vLLM — Gemma 4 26B A4B (MoE, placeholder — needs AWQ quantization)
+  # 1b. vLLM — Gemma 4 26B A4B (MoE, AWQ 4-bit)
   #     Profile: llm-gemma | Container: ai_vllm_gemma
-  #     ⚠️ Model weights not yet available. Container definition ready.
-  #     Download quantized model to /models/gemma-4-26B-A4B-awq first.
+  #     Model: cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit (~16 GB)
+  #     Download: ./paas-controller.sh prepare vllm --download gemma
+  #     ⚠️ Only ONE vllm instance runs at a time (VRAM exclusive).
   # ============================================================
   vllm-gemma:
     <<: *vllm-base
@@ -68,10 +69,12 @@ services:
       - --model
       - /models/gemma-4-26B-A4B-awq      # MoE 25.2B total / 3.8B active — AWQ ~13GB
       - --gpu-memory-utilization
-      - "0.90"  # MoE ~13GB AWQ; conservative to leave headroom
+      - "0.95"  # MoE ~13GB AWQ; need more for KV cache
       - --max-model-len
-      - "8192"  # Conservative start; tune after VRAM profiling
+      - "4096"  # Reduced to fit in VRAM with MoE overhead
       - --trust-remote-code
+      - --max-num-batched-tokens
+      - "4096"                                 # Match max_model_len
       - --host
       - "0.0.0.0"
       - --port
@@ -255,11 +258,14 @@ services:
       - VLLM_CONTAINER=ai_vllm_qwen            # default container name; webapp delegates to Router for switching
       - HF_TOKEN=${HF_TOKEN:-}               # optional: HuggingFace token for gated models
       - YTDLP_COOKIES_PATH=/cookies/cookies.txt  # optional: yt-dlp cookie file for YouTube auth
+      - MEDIA_ROOT=${MEDIA_ROOT:+/media}         # set to /media only when MEDIA_ROOT is configured
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # GPU panel: docker API + nvidia-smi via exec into vllm containers
       - ${MODELS_PATH:-./models}:/models                       # model manager: read/write model weights
       - ./data/comfyui_workflows:/comfyui_workflows:ro         # built-in workflow JSONs for browser UI
       - ./data/cookies:/cookies:ro                             # yt-dlp cookies (managed by ai_cookie_manager)
+      - ${MEDIA_ROOT:-./data/media}:/media                     # media storage for downloads (NFS or local)
+      - ./.env:/app/.env-host:rw                              # wiki config toggle: sync WIKI_READ_ONLY to .env
     networks:
       - default
     depends_on:
@@ -294,6 +300,37 @@ services:
       interval: 60s
       timeout: 10s
       retries: 3
+
+  # ============================================================
+  # 9. Vault RAG — Obsidian knowledge base AI query (Phase 6)
+  #    FastAPI + ChromaDB + BGE embedding + vLLM
+  #    Ports: 8081 (RAG API)
+  # ============================================================
+  rag:
+    build: ./services/rag
+    container_name: ai_rag
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    volumes:
+      - ${VAULT_PATH:-/Development/backup/PARA-Vault}:/vault
+      - ./data/rag_chroma:/db/chroma
+      - ${MODELS_PATH:-./models}:/models:ro
+    environment:
+      - RAG_PORT=8081
+      - CHROMA_DB_PATH=/db/chroma
+      - EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+      - VAULT_PATH=/vault
+      - ROUTER_BASE_URL=http://ai_router:4000
+      - ROUTER_API_KEY=${LITELLM_MASTER_KEY:-sk-change-me}
+      - WIKI_READ_ONLY=${WIKI_READ_ONLY:-false}
+      - WIKI_LLM_MODEL=${WIKI_LLM_MODEL:-qwen}
+      - WIKI_MAX_CHUNK_TOKENS=${WIKI_MAX_CHUNK_TOKENS:-3500}
+      - WIKI_MAX_OUTPUT_TOKENS=${WIKI_MAX_OUTPUT_TOKENS:-1600}
+    depends_on:
+      - router
+    networks:
+      - default
 
 networks:
   default:

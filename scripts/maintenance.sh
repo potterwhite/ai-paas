@@ -86,9 +86,12 @@ Commands:
 
   Service Management:
     status           Show running containers and their health
-    start            Start all ai-paas services (uses docker-compose up -d)
-    stop             Stop all ai-paas services
-    restart          Stop and start all services
+    start            Start default services (no-profile: webapp/router/whisper etc)
+    start-all        Start ALL services including comfyui, cookies profiles
+    stop             Stop default services
+    stop-all         Stop ALL services including comfyui, cookies profiles
+    restart          Stop and start default services (no-profile services only)
+    restart-all      Stop and start ALL services including comfyui, cookies profiles
 
   Logs & Monitoring:
     logs [container] Show logs for a container or all containers
@@ -101,14 +104,31 @@ Commands:
     clean-models     Interactive model cleanup (selective delete)
     cleanall         Full cleanup: stops services, cleans data AND all models
 
-   System Maintenance:
-     fix-permissions  Fix ownership/permissions on directories (default: data/)
-     reset-router     Reset router database and Redis only
-     prepare          Download/manage models for ComfyUI or vLLM
-                      Usage: prepare [comfyui|vllm]
-                        comfyui  Download ComfyUI preset models (~40 GB) via container setup.sh
-                        vllm     Show configured model, list available models, switch instructions
-     help             Show this help message
+  Wiki Management:
+    wiki-vault       Unified wiki vault management (init + ingest + status)
+                     Usage: wiki-vault status
+                            wiki-vault run [--vault-path <path>] [--window HH:MM-HH:MM] [--bg|--fg]
+                            wiki-vault reset [--vault-path <path>]
+                       status           Show all vaults and ingest progress
+                       run              Initialize (if needed) and start batch ingest
+                       reset            Reset batch progress for a vault
+                       --vault-path     Path to the Obsidian vault (interactive if omitted)
+                       --window         Time window for processing (can specify multiple)
+                       --bg / --fg      Force background or foreground mode
+
+  System Maintenance:
+    fix-permissions  Fix ownership/permissions on directories (default: data/)
+    reset-router     Reset router database and Redis only
+    prepare          Download/manage models
+                     Usage: prepare [comfyui|<model>]
+                       (no args)  Show vLLM models (installed + available to download)
+                       comfyui    Download ComfyUI preset models (~50 GB) via container setup.sh
+                       <model>    Download a vLLM model (e.g. gemma)
+    rebuild-comfyui  Full ComfyUI rebuild from scratch:
+                     wipes comfyui_workdir, re-clones all custom nodes (incl. MuseTalk),
+                     re-runs setup.sh. Preserves model weights and git-tracked workflows.
+                     Use this after updating setup.sh or when nodes are broken.
+    help             Show this help message
 
 Examples:
     $0 status                  # Check which containers are running
@@ -116,9 +136,15 @@ Examples:
     $0 logs all                # Show logs from all containers sequentially
     $0 check-deps              # Verify all dependencies are ready
     $0 cleanall                # Full cleanup (data + models)
-    $0 prepare comfyui         # Download ComfyUI preset models (~40 GB)
-    $0 prepare vllm            # Show vLLM model info and switch instructions
+    $0 prepare                 # Show vLLM models (installed + available to download)
+    $0 prepare comfyui         # Download ComfyUI preset models (~50 GB)
+    $0 prepare gemma           # Download Gemma 4 26B AWQ (~16 GB)
     $0 clean-data              # Clean runtime data only
+    $0 rebuild-comfyui         # Wipe workdir + re-clone nodes + re-run setup.sh
+    $0 wiki-vault status                          # Show all vaults and progress
+    $0 wiki-vault run                             # Interactive: select vault, window, bg mode
+    $0 wiki-vault run --vault-path /path/to/vault # Direct: init + ingest (foreground)
+    $0 wiki-vault run --vault-path /path --window 02:00-06:00 --bg  # Background with window
 
 Auto-Completion:
     To enable bash auto-completion, source the completion script:
