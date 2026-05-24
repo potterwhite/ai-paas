@@ -1,9 +1,11 @@
 FROM python:3.12-slim
 
-# Install system dependencies: ffmpeg for audio extraction
+# Install system dependencies: ffmpeg for audio extraction, node for yt-dlp JS challenge solving
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

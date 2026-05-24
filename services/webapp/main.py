@@ -62,7 +62,7 @@ def _ytdlp_base_cmd() -> list[str]:
     If YTDLP_COOKIES_PATH is set and the file exists, appends --cookies.
     Otherwise returns plain ["yt-dlp"] for backward compatibility.
     """
-    cmd = ["yt-dlp"]
+    cmd = ["yt-dlp", "--js-runtimes", "node", "--remote-components", "ejs:github"]
     if YTDLP_COOKIES_PATH and Path(YTDLP_COOKIES_PATH).is_file():
         cmd.extend(["--cookies", YTDLP_COOKIES_PATH])
     return cmd
@@ -1734,6 +1734,13 @@ async def download_page():
 
   <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">📥 开始下载</button>
 
+  <!-- yt-dlp version info -->
+  <div id="dl-version-info" style="margin-top:12px;padding:8px 12px;background:var(--surface);border-radius:6px;font-size:12px;display:flex;align-items:center;gap:8px">
+    <span id="dl-version-text" style="color:var(--text-dim)">yt-dlp: 检查中...</span>
+    <button id="dl-update-btn" class="btn btn-ghost" style="display:none;font-size:11px;padding:2px 8px" onclick="updateYtdlp()">🔄 更新</button>
+    <span id="dl-update-status" style="font-size:11px"></span>
+  </div>
+
   <div id="dl-progress" style="display:none;margin-top:16px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <span class="ck-spin" style="font-size:18px">⟳</span>
@@ -1760,6 +1767,55 @@ async def download_page():
 </style>
 
 <script>
+// ── yt-dlp version check ────────────────────────────────────────────────────
+async function checkYtdlpVersion() {
+  try {
+    const r = await fetch('/api/download/version');
+    const d = await r.json();
+    const textEl = document.getElementById('dl-version-text');
+    const updateBtn = document.getElementById('dl-update-btn');
+    if (d.current === 'not installed') {
+      textEl.textContent = 'yt-dlp: 未安装';
+      textEl.style.color = '#dc2626';
+    } else {
+      textEl.textContent = `yt-dlp: ${d.current}`;
+      if (d.update_available) {
+        textEl.textContent += ` (最新: ${d.latest})`;
+        textEl.style.color = '#f59e0b';
+        updateBtn.style.display = '';
+      } else {
+        textEl.style.color = 'var(--text-dim)';
+      }
+    }
+  } catch(e) {}
+}
+async function updateYtdlp() {
+  const btn = document.getElementById('dl-update-btn');
+  const status = document.getElementById('dl-update-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ 更新中...';
+  status.textContent = '';
+  try {
+    const r = await fetch('/api/download/update', {method: 'POST'});
+    const d = await r.json();
+    if (d.success) {
+      status.textContent = `✅ 已更新到 ${d.version}`;
+      status.style.color = '#22c55e';
+      await checkYtdlpVersion();
+    } else {
+      status.textContent = `❌ ${d.error || '更新失败'}`;
+      status.style.color = '#dc2626';
+    }
+  } catch(e) {
+    status.textContent = `❌ ${e.message}`;
+    status.style.color = '#dc2626';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 更新';
+  }
+}
+checkYtdlpVersion();
+
 // ── Section collapse/expand ──────────────────────────────────────────────────
 const _sectionOpen = {video: true, audio: true, subs: true};
 function toggleSection(s) {
@@ -2102,6 +2158,57 @@ async function startDownload() {
 </script>
 """
     return page("下载", "/download", body)
+
+
+@app.get("/api/download/version")
+async def api_download_version():
+    """Get yt-dlp version and check if update is available."""
+    import subprocess
+    try:
+        current = subprocess.check_output(["yt-dlp", "--version"], text=True).strip()
+    except Exception:
+        current = "not installed"
+
+    # Check latest version from PyPI
+    latest = None
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get("https://pypi.org/pypi/yt-dlp/json")
+            if r.status_code == 200:
+                latest = r.json().get("info", {}).get("version")
+    except Exception:
+        pass
+
+    # Normalize version strings (remove leading zeros: 2026.03.17 -> 2026.3.17)
+    def normalize_ver(v):
+        if not v:
+            return v
+        parts = v.split(".")
+        return ".".join(str(int(p)) for p in parts)
+
+    return JSONResponse({
+        "current": current,
+        "latest": latest,
+        "update_available": latest is not None and normalize_ver(current) != normalize_ver(latest),
+    })
+
+
+@app.post("/api/download/update")
+async def api_download_update():
+    """Update yt-dlp to latest version."""
+    import subprocess
+    try:
+        proc = subprocess.run(
+            ["pip", "install", "--no-cache-dir", "--upgrade", "yt-dlp"],
+            capture_output=True, text=True, timeout=60
+        )
+        if proc.returncode == 0:
+            new_version = subprocess.check_output(["yt-dlp", "--version"], text=True).strip()
+            return JSONResponse({"success": True, "version": new_version})
+        return JSONResponse({"success": False, "error": proc.stderr[:200]})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)})
 
 
 @app.post("/api/download/probe")
