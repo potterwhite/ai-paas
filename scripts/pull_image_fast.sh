@@ -12,11 +12,13 @@
 #   requests, so aria2c can fetch each one over 16 connections.
 #
 # WHAT IT PRODUCES
-#   An OCI image layout, tarred into <image>.tar, then `docker load`ed.
-#   OCI layout is used rather than docker-archive because blobs are
-#   addressed purely by digest — no hand-written diffID ordering to get
-#   wrong. The .tar is kept, so it doubles as an offline transfer file:
-#   copy it to any host and `docker load -i` it there.
+#   A docker-archive tar (<image>.tar), then `docker load`s it.
+#   docker-archive — not OCI layout — because Docker's classic
+#   graphdriver image store only accepts the former; `docker load` of an
+#   OCI layout fails with "does not contain a manifest.json" unless the
+#   containerd snapshotter is enabled, and switching that hides every
+#   image already in the classic store. The tar is kept, so it doubles
+#   as an offline transfer file: copy it anywhere and `docker load -i`.
 #
 # USAGE
 #   scripts/pull_image_fast.sh nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
@@ -154,33 +156,63 @@ while read -r digest size; do
 done < <(jq -r '[.config] + .layers | .[] | "\(.digest) \(.size)"' <<<"$MAN")
 echo "    all blobs OK"
 
-# ---------- 4. OCI layout ----------
-printf '{"imageLayoutVersion":"1.0.0"}' > "$WORKDIR/oci-layout"
-jq -n --arg mt "$MT" --arg d "sha256:$MAN_DIGEST" --argjson s "$MAN_SIZE" \
-      --arg name "$REPO:$TAG" '{
-  schemaVersion: 2,
-  mediaType: "application/vnd.oci.image.index.v1+json",
-  manifests: [{
-    mediaType: $mt, digest: $d, size: $s,
-    annotations: {
-      "org.opencontainers.image.ref.name": $name,
-      "io.containerd.image.name": ("docker.io/" + $name)
-    }
-  }]
-}' > "$WORKDIR/index.json"
+# ---------- 4. assemble a docker-archive ----------
+# Layout docker's tarexport loader expects:
+#   manifest.json          [{Config, RepoTags, Layers}]
+#   <config-hex>.json      the image config blob
+#   blobs/sha256/<hex>     the layer blobs, referenced by Layers
+# RepoTags carries the final name, so no retag step is needed.
+rm -f "$BLOBS"/*.aria2
+CONFIG_HEX=$(jq -r '.config.digest | sub("^sha256:";"")' <<<"$MAN")
+cp -f "$BLOBS/$CONFIG_HEX" "$WORKDIR/$CONFIG_HEX.json"
+
+write_manifest() {   # $1 = jq array of layer paths inside the tar
+    jq -n --arg cfg "$CONFIG_HEX.json" --arg tag "$REPO:$TAG" --argjson layers "$1" \
+        '[{Config: $cfg, RepoTags: [$tag], Layers: $layers}]' > "$WORKDIR/manifest.json"
+}
+
+LAYERS=$(jq -c '[.layers[] | "blobs/sha256/" + (.digest | sub("^sha256:";""))]' <<<"$MAN")
+write_manifest "$LAYERS"
+
+ARCHIVE="$WORKDIR.tar"
+pack_and_load() {    # $1... = paths inside WORKDIR to include
+    rm -f "$ARCHIVE"
+    echo "==> packing $ARCHIVE"
+    tar -C "$WORKDIR" -cf "$ARCHIVE" "$@"
+    ls -lh "$ARCHIVE"
+    echo "==> docker load"
+    docker load -i "$ARCHIVE"
+}
 
 # ---------- 5. load ----------
-ARCHIVE="$WORKDIR.tar"
-echo "==> packing $ARCHIVE"
-tar -C "$WORKDIR" -cf "$ARCHIVE" oci-layout index.json blobs
-ls -lh "$ARCHIVE"
+# Layer blobs are gzipped (mediaType ...tar.gzip). Docker's loader pipes
+# each one through DecompressStream, so gzip normally loads as-is. If
+# this daemon refuses, fall back to decompressing them ourselves.
+if pack_and_load manifest.json "$CONFIG_HEX.json" blobs; then
+    :
+else
+    echo
+    echo "==> compressed layers rejected — decompressing and retrying"
+    echo "    (needs roughly 2.5x the archive size in free disk)"
+    mkdir -p "$WORKDIR/plain"
+    while read -r digest; do
+        hex="${digest#sha256:}"
+        out="$WORKDIR/plain/$hex.tar"
+        [ -s "$out" ] && continue
+        # gzip magic is 1f 8b; anything else is already a plain tar.
+        if [ "$(head -c2 "$BLOBS/$hex" | od -An -tx1 | tr -d ' ')" = "1f8b" ]; then
+            echo "    gunzip $hex"
+            gunzip -c "$BLOBS/$hex" > "$out"
+        else
+            cp -f "$BLOBS/$hex" "$out"
+        fi
+    done < <(jq -r '.layers[].digest' <<<"$MAN")
 
-echo "==> docker load"
-docker load -i "$ARCHIVE"
+    write_manifest "$(jq -c '[.layers[] | "plain/" + (.digest | sub("^sha256:";"")) + ".tar"]' <<<"$MAN")"
+    pack_and_load manifest.json "$CONFIG_HEX.json" plain
+fi
 
 echo
-echo "Done. If the loaded name is not exactly '$IMAGE', retag it:"
-echo "  docker tag <loaded-name> $IMAGE"
-echo
+echo "Loaded as $REPO:$TAG — verify with: docker images | grep '${REPO##*/}'"
 echo "Archive kept at $ARCHIVE — reusable offline on any host via 'docker load -i'."
 echo "Delete $WORKDIR once loaded; the .tar alone is enough."

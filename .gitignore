@@ -34,3 +34,7 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# scripts/pull_image_fast.sh output — multi-GB image blobs and archives
+oci-*/
+oci-*.tar
