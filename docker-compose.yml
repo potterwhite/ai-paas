@@ -332,6 +332,48 @@ services:
     networks:
       - default
 
+  # ============================================================
+  # 10. HivisionIDPhotos — AI ID photo (manual-install sandbox)
+  #     The image is an EMPTY shell: apt system libs only, zero pip
+  #     packages, no app code. You install everything by hand inside.
+  #     Full walkthrough: services/idphoto/README.md
+  #
+  #     Start:  docker compose --profile idphoto up -d --build idphoto
+  #     Enter:  docker exec -it ai_idphoto bash
+  #     Run:    run.sh                       (inside the container)
+  #     Reset:  docker compose rm -sf idphoto && ...up -d idphoto
+  #             -> code / weights / pip cache survive (host bind mounts)
+  #
+  #     No published port on purpose: ai_webapp reaches the API over the
+  #     internal network at http://ai_idphoto:8080. To poke it by hand,
+  #     curl 127.0.0.1:8080 from inside the container.
+  #     Device: IDPHOTO_DEVICE=cpu|gpu in .env — see services/idphoto/run.sh
+  #     ⚠️ GPU mode requires every ai_vllm_* to be stopped first:
+  #        birefnet-v1-lite wants ~16 GB VRAM, vLLM holds ~22 GB of 24 GB.
+  #        Image quality is identical on cpu — only speed differs.
+  # ============================================================
+  idphoto:
+    build: ./services/idphoto
+    container_name: ai_idphoto
+    profiles: ["idphoto"]      # Never auto-starts; keep out of COMPOSE_PROFILES
+    restart: "no"              # Manual start only — this is a scratch sandbox
+    volumes:
+      - ./data/idphoto/src:/workspace                    # git clone + weights — survive container deletion
+      - ./data/idphoto/pip-cache:/root/.cache/pip        # makes reinstall-after-reset take seconds
+      - ./services/idphoto/run.sh:/usr/local/bin/run.sh:ro  # launcher — readable/editable on the host
+    environment:
+      - IDPHOTO_DEVICE=${IDPHOTO_DEVICE:-cpu}
+      - TZ=Asia/Hong_Kong
+    deploy:                    # Exposes the GPU; consumes no VRAM until a process allocates
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - default
+
 networks:
   default:
     external: true

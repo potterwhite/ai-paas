@@ -6,7 +6,7 @@
 >
 > **维护规则：** 任何 AI Agent 修改了本文档中列出的文件，必须在同一个 commit/会话中更新本文档对应章节。
 >
-> 最后更新：2026-04-26（Phase 6: Vault RAG 开始实现）
+> 最后更新：2026-08-18（新增 idphoto 手动安装沙箱）
 >
 
 ---
@@ -32,10 +32,15 @@
 │   │   ├── Dockerfile
 │   │   ├── requirements.txt
 │   │   └── app/                            ←   FastAPI app
+│   ├── idphoto/                            ←   HivisionIDPhotos 手动安装沙箱
+│   │   ├── Dockerfile                      ←     空壳镜像（仅 apt 系统库，无 pip 包）
+│   │   ├── run.sh                          ←     启动器（读 IDPHOTO_DEVICE 切 cpu/gpu）
+│   │   └── README.md                       ←     手动安装步骤
 │   └── comfyui/                            ←   ComfyUI 部署脚本 + 工作流
 ├── data/                                   ← 运行时数据
 │   ├── router_redis/                       ←   Redis data (Phase 4)
 │   ├── router_db/                          ←   Router SQLite (Phase 4)
+│   ├── idphoto/                            ←   HivisionIDPhotos 代码 + 权重 + pip 缓存（git-ignored）
 │   └── comfyui_workdir/                    ←   ComfyUI 状态
 ├── docs/
 │   └── zh/
@@ -135,6 +140,29 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
 - 依赖：Router（调用 LLM）、Vault volume、ChromaDB volume
 - 环境：见 `docker-compose.yml` rag service
 
+**服务：`idphoto`（容器：`ai_idphoto`）— profile: `idphoto`**
+- 镜像：本地构建（`services/idphoto/`）— **故意做成空壳**
+- 端口：**不对外发布** — 容器内 `8080`，仅 `ai_paas_network` 内部可达
+- restart: `"no"`，profile 门控 — 默认不启动，不写进 `COMPOSE_PROFILES`
+- 用途：HivisionIDPhotos AI 证件照（抠图 → 换底色 → 标准尺寸裁切）
+- **安装方式：手动。** 镜像里只有 apt 系统库（opencv 的 `libGL` 依赖），
+  零 pip 包、零应用代码。用户 `docker exec` 进去自己装。
+  完整步骤见 `services/idphoto/README.md`
+- 底座：`nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04`（Ubuntu 22.04 → python 3.10，
+  满足项目 `numpy<=1.26.4` 约束；带 CUDA 使 cpu/gpu 两条路都可用）
+- 持久化（bind mount，删容器不丢）：
+  - `./data/idphoto/src` → `/workspace` — git clone + 模型权重
+  - `./data/idphoto/pip-cache` → `/root/.cache/pip` — 重装走缓存
+  - `./services/idphoto/run.sh` → `/usr/local/bin/run.sh:ro` — 启动器
+- 重置：`docker compose rm -sf idphoto && docker compose --profile idphoto up -d idphoto`
+- **设备切换：** `.env` 中 `IDPHOTO_DEVICE=cpu|gpu`。HivisionIDPhotos 没有 device 参数，
+  它靠 `onnxruntime.get_device()` 判断并在 CUDA 初始化失败时回退 CPU，
+  所以 `run.sh` 通过 `CUDA_VISIBLE_DEVICES` 驱动切换。
+- ⚠️ **gpu 模式必须先停所有 `ai_vllm_*`** — birefnet-v1-lite 需 ~16 GB 显存，
+  vLLM 占 24 GB 中的 ~22 GB，单卡装不下。
+- ⚠️ **画质与设备无关** — cpu/gpu 用同一份 `.onnx` 权重，输出一致，仅速度不同。
+- 抠图模型画质排序：`birefnet-v1-lite`（224MB，最好）> `rmbg-1.4`（176MB）> `modnet`（24.7MB）
+
 ---
 
 ### API 接口
@@ -196,6 +224,20 @@ POST http://192.168.0.19:8081/v1/vault/index/rebuild → 重建索引
 GET  http://192.168.0.19:8081/v1/health          → 健康检查
 ```
 
+### AI 证件照（ai_idphoto — 容器内 :8080，不对外发布）
+```
+POST http://ai_idphoto:8080/idphoto                 → 证件照（抠图+裁切+底色）
+POST http://ai_idphoto:8080/human_matting           → 仅抠图
+POST http://ai_idphoto:8080/add_background          → 仅换底色
+POST http://ai_idphoto:8080/generate_layout_photos  → 六寸排版照
+POST http://ai_idphoto:8080/idphoto_crop            → 仅裁切（不抠图）
+```
+> ⚠️ 仅容器内部网络可达，宿主机无端口映射。ai_webapp 通过容器名访问。
+> 手动测试：`docker exec -it ai_idphoto bash` 后 curl `127.0.0.1:8080`。
+> profile 门控，默认不启动：`docker compose --profile idphoto up -d idphoto`
+> 应用需手动安装，见 `services/idphoto/README.md`。
+> 画质优先参数：`human_matting_model=birefnet-v1-lite` + `face_detect_model=retinaface`
+
 ### OpenClaw 专用配置
 ```
 API Base URL:  http://192.168.0.19:4000/v1
@@ -218,6 +260,7 @@ Model Name:    qwen
 | `ai_router_redis` | `redis:7-alpine` | ✅ 运行中 | Celery broker + cache |
 | `ai_router_worker` | 本地构建 | ✅ 运行中 | Celery 异步任务 |
 | `ai_rag` | 本地构建 | ⏸ 停止（Phase 6 新建） | Vault RAG / 知识库查询 |
+| `ai_idphoto` | 本地构建（空壳） | ⏸ 停止（profile 门控，手动装） | AI 证件照 — HivisionIDPhotos |
 
 ---
 
@@ -250,4 +293,5 @@ Model Name:    qwen
 | `router_db` | `./data/router_db` | Router SQLite 数据库 |
 | `router_redis` | `./data/router_redis` | Redis 持久化数据 |
 | `rag_chroma` | `./data/rag_chroma` | ChromaDB 向量索引 |
+| `idphoto` | `./data/idphoto` | HivisionIDPhotos 代码 (`src/`) + 模型权重 + pip 缓存 |
 | `comfyui_workdir` | `./data/comfyui_workdir` | ComfyUI 状态 |
