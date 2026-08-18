@@ -1,231 +1,143 @@
-# HivisionIDPhotos — 手动安装沙箱
+# ai_idphoto — HivisionIDPhotos 手动安装沙盒
 
-AI 证件照：上传人像 → 抠图 → 换底色 → 按标准尺寸裁切排版。
+AI 证件照。RTX 3090 推理。
 
-**这个容器是个空壳。** 镜像里只有 apt 层的系统库（opencv 依赖的 `libGL` 那一坨），
-Python 包和应用代码一个都没有 —— 全部由你进容器手动装，装坏了删掉容器重来。
+镜像是个**空壳** —— 只有 apt 系统库,没有任何 pip 包,没有应用代码。所有东西你自己进容器装。装坏了删容器重来,代码和权重不会丢。
+
+> **铁律:`$MODELS_PATH/idphoto/src` 是上游 clone,永远不改。**
+> 我们的所有修正都在 `services/idphoto/` 里。上游那份 `requirements.txt` 有缺陷,
+> 我们不去改它,而是用我们自己的 `requirements.txt`。
 
 ---
 
-## 设计约定
+## 装
 
-工作目录挂在 `MODELS_PATH` 下（`/Development`，独立的 1 TB 数据盘），
-不放在仓库里 —— 权重 + pip 缓存接近 1 GB，不占 196 GB 的系统盘。
+### 1. clone 上游
 
-`$MODELS_PATH/idphoto` 展开后是 `/Development/docker/docker-volumes/ai_paas/idphoto`，
-宿主机上有个软链接可以少敲字：`~/docker-volumes/ai_paas/idphoto`。
+```bash
+mkdir -p /Development/docker/docker-volumes/ai_paas/idphoto/{src,pip-cache}
+git clone https://github.com/Zeyi-Lin/HivisionIDPhotos.git \
+  /Development/docker/docker-volumes/ai_paas/idphoto/src
 
-| 东西 | 位置 | 删容器后 |
+# pip 缓存必须归 root：pip 只认属主 uid，不看权限位，
+# 属主不是当前用户就直接禁用缓存（重装时白下 300MB+）
+sudo chown -R 0:0 /Development/docker/docker-volumes/ai_paas/idphoto/pip-cache
+```
+
+### 2. 下权重(宿主机)
+
+```bash
+bash services/idphoto/1-download-weights.sh
+```
+
+214MB + 105MB,aria2c 16 线程。脚本会校验字节数 —— 必须校验,因为下载重定向失败会写一个 HTML 错误页进去,文件名和扩展名都对,直到 onnxruntime 报个看不懂的错才暴露。
+
+### 3. 起容器
+
+```bash
+docker compose --profile idphoto up -d --build idphoto
+```
+
+### 4. 装依赖(容器内)
+
+```bash
+docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
+```
+
+结尾会自己验证 —— `onnxruntime.get_device()` 必须是 `GPU`,不是就 exit 1。
+
+### 5. 跑
+
+```bash
+docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh
+```
+
+浏览器打开 **http://192.168.0.19:7860**
+
+⚠️ 跑之前把 `ai_vllm_*` 全停掉。birefnet-v1-lite 要约 16GB 显存,vLLM 占 22GB,这张 24GB 的卡塞不下两个。
+
+---
+
+## 装坏了重来
+
+```bash
+docker rm -f ai_idphoto
+docker compose --profile idphoto up -d idphoto
+docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
+```
+
+pip 装的东西在容器层里,删容器就没了。clone、权重、pip 缓存都在宿主机 bind mount 上,不受影响。第二次装走 pip 缓存,很快。
+
+---
+
+## 两个静默陷阱
+
+装的时候一切正常、不报错,但结果是错的 —— 所以 `2-install.sh` 结尾一定要断言。
+
+**1. `onnxruntime` 是 CPU 版**
+
+上游 `requirements.txt` 写的是 `onnxruntime>=1.15.0`,那个 wheel 没有 CUDA provider。`hivision/creator/human_matting.py:40` 拿 `onnxruntime.get_device()`,返回 `"CPU"`,第 42 行就选了 `CPUExecutionProvider`。**不报错,只是慢十倍。** 必须换 `onnxruntime-gpu`。
+
+**2. 版本装成 1.18 会退回 CPU**
+
+onnxruntime-gpu ≤1.18 链 `libcudnn.so.8`,≥1.19 链 `libcudnn.so.9`。我们的镜像是 `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04`,带的是 **cuDNN 9.5.1,没有 `.so.8`**。装 1.18 会加载不到 CUDA provider,又是静默退回 CPU。
+
+上游 README 写 1.18.0,是因为它那行上面注明了「假如你的电脑安装的是 CUDA 12.x, **cuDNN 8**」。规则一样,cuDNN 版本不同而已。
+
+顺带:上游提到的 `pip install torch` **不用装**。那是给「始终配置不好 cuDNN」的人的拐杖 —— torch 的 wheel 自带一套 cuDNN,拿来顶替。我们镜像里 cuDNN 是好的,省下 2.5GB。
+
+---
+
+## 我们的文件
+
+| 文件 | 用途 |
+|---|---|
+| `Dockerfile` | 空壳镜像:CUDA 12.6.3 + cuDNN 9 + python3 + 几个 libGL |
+| `requirements.txt` | 我们修正过的依赖。**不是**上游那份 |
+| `1-download-weights.sh` | 宿主机跑,下 2 个 onnx + 校验字节数 |
+| `2-install.sh` | 容器内跑,装依赖 + 自验证。幂等 |
+| `3-run.sh` | 容器内跑,起 WebUI |
+
+`services/idphoto/` 整个目录挂到容器 `/opt/idphoto:ro`。
+
+挂**目录**不挂单文件是有原因的:单文件 bind mount 绑的是源文件 inode,你在宿主机改文件换了 inode,容器里那个挂载点还指着旧 inode,看到的是旧内容。挂目录按路径逐次解析,**改完立刻生效,不用重建容器**。
+
+---
+
+## WebUI 和 API 是两个东西
+
+| | 文件 | 端口 | 有页面 |
+|---|---|---|---|
+| WebUI | `app.py` | 7860(已发布) | ✅ Gradio |
+| API | `deploy_api.py` | 8080(仅内网) | ❌ 7 个 POST 接口 |
+
+`3-run.sh` 跑的是 WebUI。`deploy_api.py` 没有任何页面,浏览器打开是空的 —— 它是留给以后 ai_webapp 集成用的,走内部网络 `http://ai_idphoto:8080`。
+
+7860 这个端口:8080 和 8443 是 Harbor 的 nginx,8081 是 ai_rag,8888 是 ai_webapp。
+
+---
+
+## 模型质量
+
+| 模型 | 大小 | 质量 |
 |---|---|---|
-| 应用代码 | 宿主机 `$MODELS_PATH/idphoto/src` → 容器 `/workspace` | **保留** |
-| 模型权重 | 同上（在 clone 目录里面） | **保留** |
-| pip 缓存 | 宿主机 `$MODELS_PATH/idphoto/pip-cache` | **保留**（重装只需几十秒） |
-| pip 装的包 | 容器内 | **归零** ← 这就是「重来一遍」清掉的东西 |
-| apt 装的包 | 容器内 | **归零** |
+| birefnet-v1-lite | 214MB | 最好,唯一能吃 GPU 的 |
+| rmbg-1.4 | 176MB | 中 |
+| MODNet | 24.7MB | 一般 |
 
-**不对外发布端口。** `deploy_api.py` 在容器内监听 `8080`，`ai_webapp` 通过内部网络
-`http://ai_idphoto:8080` 访问它。要手动测就进容器 curl `127.0.0.1:8080`。
+只下了 birefnet-v1-lite。WebUI 的模型下拉框是扫 `hivision/creator/weights/*.onnx` 生成的,所以只会出现已下载的。
 
----
-
-## 一、准备目录 + 拉代码和权重到本地（宿主机上做，需要联网）
-
-这一步做完，之后删容器重建都**不再需要网络**。
-
-```bash
-mkdir -p ~/docker-volumes/ai_paas/idphoto/{src,pip-cache}
-cd ~/docker-volumes/ai_paas/idphoto/src
-git clone --depth 1 https://github.com/Zeyi-Lin/HivisionIDPhotos.git .
-mkdir -p hivision/creator/weights hivision/creator/retinaface/weights
-```
-
-### 权重下载
-
-⚠️ **不要用官方的 `scripts/download_model.py`** —— 它有 bug：CLI 参数写的是
-`birefnet-lite`，内部字典 key 却是 `birefnet-v1-lite`，传进去直接报错；
-而 `retinaface-resnet50` 根本没进 CLI 选项，脚本选不到。下面用 curl 绕开。
-
-GitHub release 的 CDN（`objects.githubusercontent.com`）单连接限速严重，
-实测只有 ~180 KB/s。用 `aria2c -x16` 多连接下载会快得多：
-
-```bash
-# ① birefnet-v1-lite (214 MB) —— 画质最好，本项目默认用它
-#    注意：权重在 ZhengPeng7/BiRefNet 那个 repo，文件名完全不同，必须重命名
-aria2c -x16 -s16 -k1M -d hivision/creator/weights -o birefnet-v1-lite.onnx \
-  https://github.com/ZhengPeng7/BiRefNet/releases/download/v1/BiRefNet-general-bb_swin_v1_tiny-epoch_232.onnx
-
-# ② retinaface-resnet50 (105 MB) —— 人脸检测，比默认的 mtcnn 准
-aria2c -x16 -s16 -k1M -d hivision/creator/retinaface/weights -o retinaface-resnet50.onnx \
-  https://github.com/Zeyi-Lin/HivisionIDPhotos/releases/download/pretrained-model/retinaface-resnet50.onnx
-
-# ③ 以下三个是备用 / 对照模型，想省时间可以先跳过
-aria2c -x16 -s16 -k1M -d hivision/creator/weights -o modnet_photographic_portrait_matting.onnx \
-  https://github.com/Zeyi-Lin/HivisionIDPhotos/releases/download/pretrained-model/modnet_photographic_portrait_matting.onnx
-aria2c -x16 -s16 -k1M -d hivision/creator/weights -o hivision_modnet.onnx \
-  https://github.com/Zeyi-Lin/HivisionIDPhotos/releases/download/pretrained-model/hivision_modnet.onnx
-aria2c -x16 -s16 -k1M -d hivision/creator/weights -o rmbg-1.4.onnx \
-  "https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx?download=true"
-```
-
-下完**必须核对大小**：
-
-```bash
-ls -lh hivision/creator/weights/ hivision/creator/retinaface/weights/
-```
-
-`birefnet-v1-lite.onnx` 应为 **214M**，`retinaface-resnet50.onnx` 应为 **105M**。
-只有几 KB 说明下到的是 HTML 错误页 —— 这个错不会当场暴露，
-要等 onnxruntime 加载时才炸，报的错也看不出是这个原因。
+人脸检测:`mtcnn`(pip 装的 `mtcnn-runtime`,默认)和 `retinaface-resnet50`(已下,更准)。下拉框里还有个 `face++`,那是联网 API,**不要用**。
 
 ---
 
-## 二、起容器
-
-### 先把 base image 拉下来（可选，但强烈建议）
-
-`nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04` 约 2.5 GB。`daemon.json` 里的
-`registry-mirrors` 只对 Docker Hub 生效，而且多数加速器对 `nvidia/cuda` 这类
-**非 library 命名空间**代理得不好，会悄悄回落到原站。把加速器写进拉取路径更可靠：
+## 排查
 
 ```bash
-docker pull docker.m.daocloud.io/nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
-docker tag  docker.m.daocloud.io/nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04 \
-            nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
+docker exec ai_idphoto nvidia-smi -L        # 应有 GPU 0: NVIDIA GeForce RTX 3090
+docker exec ai_idphoto ls /workspace        # 应有 deploy_api.py、app.py、hivision/
+docker exec ai_idphoto ls /opt/idphoto      # 应有我们那几个脚本
+nvidia-smi                                  # 跑之前确认显存是空的
 ```
 
-改回标准名字之后 Dockerfile 一行都不用动，build 时发现本地已有，不再拉取。
-daocloud 慢的话换 `docker.1ms.run`，用法相同。
-
-### 构建 + 启动
-
-```bash
-cd /home/james/ai-paas
-docker compose --profile idphoto build idphoto
-docker compose --profile idphoto up -d idphoto
-```
-
-验证两件事，任一条不对就别往下走：
-
-```bash
-docker exec ai_idphoto ls /workspace      # 要能看到 deploy_api.py、hivision/
-docker exec ai_idphoto nvidia-smi -L      # 要输出 GPU 0: NVIDIA GeForce RTX 3090
-```
-
----
-
-## 三、容器内手动安装（以下都是你自己敲）
-
-```bash
-docker exec -it ai_idphoto bash
-```
-
-pip 源已经通过 compose 的 `PIP_INDEX_URL` 指向清华镜像，不用另外配。
-
-```bash
-# 确认代码在（宿主机挂进来的）
-ls /workspace
-
-# 1. 装项目依赖
-pip install -r requirements.txt
-
-# 2. deploy_api.py 需要，但 requirements.txt 里没写
-pip install fastapi uvicorn python-multipart
-
-# 3. 换成 GPU 版 onnxruntime  ← 不做这步 GPU 就是白配的
-#    requirements.txt 里写的是 CPU 专用的 onnxruntime。代码靠
-#    onnxruntime.get_device() 判断设备（human_matting.py:40），装 CPU 版
-#    它永远返回 "CPU" —— 不报错，只是默默用 CPU 跑，慢十倍且查不出原因。
-#    两个包提供同一个 `onnxruntime` 模块，同时装会互相打架，必须先卸。
-pip uninstall -y onnxruntime
-pip install onnxruntime-gpu==1.19.2       # 必须 >=1.19：它对应 cuDNN 9，和底座镜像一致
-                                          # 1.18 及以下是 cuDNN 8，会报找不到 libcudnn.so.8
-
-# 4. 起服务
-run.sh
-```
-
-装完确认 GPU 真的生效了：
-
-```bash
-python -c "import onnxruntime; print(onnxruntime.get_device(), onnxruntime.get_available_providers())"
-```
-
-要看到 `GPU` 和 `CUDAExecutionProvider`。输出 `CPU` 说明第 3 步没成功。
-
----
-
-## 四、验证
-
-`run.sh` 会占住当前终端，所以另开一个终端再进容器一次：
-
-```bash
-docker exec -it ai_idphoto bash
-
-# 放一张测试照片到宿主机 $MODELS_PATH/idphoto/src/ 下，容器里就是 /workspace/
-curl -s -X POST http://127.0.0.1:8080/idphoto \
-  -F "input_image=@/workspace/test.jpg" \
-  -F "human_matting_model=birefnet-v1-lite" \
-  -F "face_detect_model=retinaface" \
-  -F "height=413" -F "width=295" \
-  | head -c 300
-```
-
-返回 `{"status": true, "image_base64_standard": "..."}` 就是通了。
-返回 `{"status": false}` 一般是没检测到人脸，换张照片试试。
-
-想直接看图，把 base64 存成文件（在容器里）：
-
-```bash
-curl -s -X POST http://127.0.0.1:8080/idphoto \
-  -F "input_image=@/workspace/test.jpg" \
-  -F "human_matting_model=birefnet-v1-lite" \
-  -F "face_detect_model=retinaface" \
-  | python -c "import sys,json,base64; d=json.load(sys.stdin); open('/workspace/out.png','wb').write(base64.b64decode(d['image_base64_standard']))"
-```
-
-然后在宿主机 `~/docker-volumes/ai_paas/idphoto/src/out.png` 打开看画质。
-
----
-
-## 五、装坏了重来
-
-```bash
-cd /home/james/ai-paas
-docker compose rm -sf idphoto
-docker compose --profile idphoto up -d idphoto
-docker exec -it ai_idphoto bash
-```
-
-代码、权重、pip 缓存都还在，回到第三步重新 `pip install` 即可（走缓存，几十秒）。
-
----
-
-## 六、GPU / CPU 切换
-
-`.env` 里的 `IDPHOTO_DEVICE` 控制，**默认 `gpu`**。改完重建容器（约 2 秒，什么都不会丢）：
-
-```bash
-docker stop ai_vllm_qwen                          # ⚠️ GPU 模式必须先停！见下
-docker compose --profile idphoto up -d idphoto
-docker exec -it ai_idphoto run.sh
-```
-
-⚠️ **GPU 模式和 vLLM 不能共存。** birefnet 的 GPU 通路要 ~16 GB 显存，
-`ai_vllm_qwen` 占着 24 GB 里的 ~22 GB，装不下。跑之前先确认卡是空的：
-
-```bash
-nvidia-smi --query-gpu=memory.used --format=csv
-```
-
-切回 CPU 就把 `.env` 改成 `IDPHOTO_DEVICE=cpu`，`run.sh` 会隐藏 CUDA。
-此时会打一行 CUDA 初始化失败的警告，**这是预期行为**，它会自动回退并正常工作。
-
-**画质上 cpu 和 gpu 完全没有区别** —— 同一个 `.onnx` 权重、同样的运算，
-只是算得快慢不同。所以除非你嫌等得烦，没必要为此停掉大模型。
-
-参考耗时（作者在 M1 Max 上实测，本机 EPYC 7551 单核更弱，估计更慢）：
-
-| 组合 | 内存 | 耗时 |
-|---|---|---|
-| MODNet + mtcnn | 410 MB | 0.2 s |
-| birefnet-v1-lite + retinaface | 6.2 GB | 7 s |
+`docker exec` 进去时那句 `groups: cannot find name for group ID 993` 是正常的 —— 宿主机的 video 组 gid 在容器里没有对应名字,不影响。

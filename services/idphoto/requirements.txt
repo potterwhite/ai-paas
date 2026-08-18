@@ -1,0 +1,49 @@
+# ============================================================
+# HivisionIDPhotos dependencies — OUR corrected version.
+#
+# The upstream clone at $MODELS_PATH/idphoto/src is NEVER modified.
+# Its own requirements.txt has two defects for this box; both are fixed
+# below, and each fix has a comment saying why, because both failure
+# modes are silent.
+# ============================================================
+
+# ---- straight from upstream requirements.txt ----
+opencv-python>=4.8.1.78
+numpy<=1.26.4
+requests
+mtcnn-runtime
+tqdm
+starlette
+
+# ---- fix 1: upstream forgot Pillow ----
+# hivision/utils.py:3 and hivision/creator/human_matting.py:11 both do
+# `from PIL import Image`, but no requirements file lists Pillow.
+# Import fails outright, so this one is at least loud.
+Pillow
+
+# ---- fix 2: upstream pins CPU-only onnxruntime ----
+# Upstream has `onnxruntime>=1.15.0`. That wheel has no CUDA provider, so
+# human_matting.py:40 `onnxruntime.get_device()` returns "CPU" and line 42
+# picks CPUExecutionProvider. No error, no warning — just ~10x slower.
+#
+# Version floor matters too: onnxruntime-gpu <=1.18 links libcudnn.so.8,
+# 1.19+ links libcudnn.so.9. Our base image (nvidia/cuda:12.6.3-cudnn-
+# runtime-ubuntu22.04) ships cuDNN 9.5.1 and has no .so.8, so 1.18 would
+# fail to load the CUDA provider and fall back to CPU — silently again.
+# Upstream's README says 1.18.0 because it assumes cuDNN 8.
+#
+# torch is deliberately NOT installed. Upstream suggests it only as a way
+# to borrow cuDNN from the torch wheel when your cuDNN is broken; ours is
+# fine, and torch+cu121 is ~2.5 GB for nothing.
+onnxruntime-gpu>=1.19,<1.20
+
+# ---- deploy_api.py ----
+fastapi
+uvicorn
+python-multipart
+
+# ---- app.py, and unavoidable for the API too ----
+# hivision/plugin/beauty/__init__.py imports beauty_tools -> grind_skin,
+# which builds a gr.Blocks UI at module scope. So importing `hivision` at
+# all pulls gradio in, even on the API-only path.
+gradio>=4.43.0

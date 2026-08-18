@@ -338,33 +338,38 @@ services:
   #     packages, no app code. You install everything by hand inside.
   #     Full walkthrough: services/idphoto/README.md
   #
-  #     Start:  docker compose --profile idphoto up -d --build idphoto
-  #     Enter:  docker exec -it ai_idphoto bash
-  #     Run:    run.sh                       (inside the container)
-  #     Reset:  docker compose rm -sf idphoto && ...up -d idphoto
-  #             -> code / weights / pip cache survive (host bind mounts)
+  #     1. bash services/idphoto/1-download-weights.sh      (on the host)
+  #     2. docker compose --profile idphoto up -d --build idphoto
+  #     3. docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
+  #     4. docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh
+  #     5. open http://<host>:7860
   #
-  #     No published port on purpose: ai_webapp reaches the API over the
-  #     internal network at http://ai_idphoto:8080. To poke it by hand,
-  #     curl 127.0.0.1:8080 from inside the container.
-  #     Device: IDPHOTO_DEVICE=gpu|cpu in .env — see services/idphoto/run.sh
-  #     ⚠️ GPU mode requires every ai_vllm_* to be stopped first:
+  #     Reset: docker rm -f ai_idphoto, then back to step 2.
+  #     Clone / weights / pip cache are host bind mounts and survive.
+  #
+  #     ⚠️ GPU only. Requires every ai_vllm_* to be stopped first:
   #        birefnet-v1-lite wants ~16 GB VRAM, vLLM holds ~22 GB of 24 GB.
-  #        Image quality is identical on cpu — only speed differs.
   # ============================================================
   idphoto:
     build: ./services/idphoto
     container_name: ai_idphoto
     profiles: ["idphoto"]      # Never auto-starts; keep out of COMPOSE_PROFILES
     restart: "no"              # Manual start only — this is a scratch sandbox
+    ports:
+      # 7860 = gradio's default. 8080/8443 belong to Harbor's nginx on this
+      # box, 8081 to ai_rag, 8888 to ai_webapp.
+      - "7860:7860"
     volumes:
       # src + pip-cache live under MODELS_PATH (/Development, 1 TB) — keeps the
       # ~330 MB of weights and the pip cache off the 196 GB system disk.
       - ${MODELS_PATH:-./models}/idphoto/src:/workspace              # git clone + weights — survive container deletion
       - ${MODELS_PATH:-./models}/idphoto/pip-cache:/root/.cache/pip  # makes reinstall-after-reset take seconds
-      - ./services/idphoto/run.sh:/usr/local/bin/run.sh:ro           # launcher — readable/editable on the host
+      # Whole directory, NOT individual files: a single-file bind mount is
+      # pinned to the source inode, so editing the file on the host swaps the
+      # inode and the container keeps serving the old contents. Mounting the
+      # directory means host edits take effect with no container restart.
+      - ./services/idphoto:/opt/idphoto:ro                           # our scripts + requirements.txt
     environment:
-      - IDPHOTO_DEVICE=${IDPHOTO_DEVICE:-gpu}
       - TZ=Asia/Hong_Kong
       # Domestic PyPI mirror — onnxruntime-gpu alone is ~200 MB and the
       # upstream index is slow from here. Env var, so no rebuild needed.
