@@ -32,6 +32,15 @@ Pillow
 # fail to load the CUDA provider and fall back to CPU — silently again.
 # Upstream's README says 1.18.0 because it assumes cuDNN 8.
 #
+# ⚠️ Listing it here is NOT enough, and 2-install.sh reinstalls it after
+# this file is applied. mtcnn-runtime declares `Requires: onnxruntime`, so
+# pip pulls the CPU wheel in transitively no matter what we ask for. Both
+# wheels unpack into the same onnxruntime/capi/ directory, where the
+# libonnxruntime.so.<ver> files coexist but
+# onnxruntime_pybind11_state.cpython-310-x86_64-linux-gnu.so is a single
+# filename — last writer wins. When the CPU wheel wins, the CUDA provider
+# .so files are still on disk but unreachable.
+#
 # torch is deliberately NOT installed. Upstream suggests it only as a way
 # to borrow cuDNN from the torch wheel when your cuDNN is broken; ours is
 # fine, and torch+cu121 is ~2.5 GB for nothing.
@@ -46,4 +55,17 @@ python-multipart
 # hivision/plugin/beauty/__init__.py imports beauty_tools -> grind_skin,
 # which builds a gr.Blocks UI at module scope. So importing `hivision` at
 # all pulls gradio in, even on the API-only path.
-gradio>=4.43.0
+#
+# Upper bound is ours, not upstream's. Upstream says `gradio>=4.43.0` with
+# no cap, which now resolves to 6.x, where Blocks.launch() no longer takes
+# show_api — app.py:78 passes it and dies on startup. Upstream targeted
+# 4.x, so cap it there rather than patch the clone.
+gradio>=4.43.0,<5
+
+# ---- fix 3: gradio 4.x does not cap huggingface_hub ----
+# gradio/oauth.py:13 does `from huggingface_hub import HfFolder, whoami`.
+# HfFolder was long deprecated and finally removed in huggingface_hub 1.0.
+# gradio 4.44.1 only asks for `huggingface-hub>=0.19.3`, so pip resolves
+# 1.x and `import gradio` dies with ImportError before anything runs.
+# Cap on our side; gradio 4.x is EOL and will never ship the fix.
+huggingface-hub>=0.19.3,<1.0

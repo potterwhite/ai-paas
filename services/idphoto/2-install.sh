@@ -18,17 +18,32 @@ REQ=/opt/idphoto/requirements.txt
 [ -f "$REQ" ] || { echo "ERROR: $REQ not found — is services/idphoto mounted at /opt/idphoto?"; exit 1; }
 [ -f /workspace/deploy_api.py ] || { echo "ERROR: /workspace is not the clone. See README.md."; exit 1; }
 
-# The plain onnxruntime wheel and onnxruntime-gpu install into the same
-# `onnxruntime` package directory. If the CPU one is already there — from
-# a previous `pip install -r requirements.txt` against the upstream file —
-# pip will not replace it, and get_device() keeps reporting CPU.
-if pip show onnxruntime >/dev/null 2>&1; then
-    echo "==> removing CPU-only onnxruntime (it shadows onnxruntime-gpu)"
-    pip uninstall -y onnxruntime
-fi
-
+# The plain onnxruntime wheel and onnxruntime-gpu unpack into the same
+# onnxruntime/ package directory, and onnxruntime_pybind11_state...so is a
+# single filename — whichever installs last wins. mtcnn-runtime declares
+# `Requires: onnxruntime`, so pip drags the CPU wheel in during the install
+# below regardless of what requirements.txt asks for, and it usually lands
+# last. So the fix cannot be a check before the install; it has to be a
+# repair after it.
 echo "==> installing $REQ"
 pip install -r "$REQ"
+
+# Purge BOTH, then reinstall only the GPU one. Removing just the CPU wheel
+# would delete files its RECORD shares with onnxruntime-gpu and leave that
+# one broken.
+ORT_PIN=$(grep -E '^onnxruntime-gpu' "$REQ")
+echo
+echo "==> repairing onnxruntime: purging both wheels, reinstalling $ORT_PIN"
+pip uninstall -y onnxruntime onnxruntime-gpu 2>/dev/null || true
+pip install "$ORT_PIN"
+
+# Belt and braces: if anything reintroduced the CPU wheel, the python check
+# below would still pass on a lucky install order, so assert at pip level too.
+if pip show onnxruntime >/dev/null 2>&1; then
+    echo "FAIL: plain onnxruntime is installed alongside onnxruntime-gpu."
+    echo "      They collide on onnxruntime_pybind11_state...so — last writer wins."
+    exit 1
+fi
 
 # ---------- verify ----------
 # Both defects this file works around are silent, so asserting is the
@@ -59,6 +74,14 @@ if "CUDAExecutionProvider" not in providers:
 
 from PIL import Image  # noqa: F401  — upstream forgets to declare this
 print("Pillow OK")
+
+# app.py:78 passes show_api= to Blocks.launch(), removed in gradio 6.
+import gradio
+if int(gradio.__version__.split(".")[0]) >= 5:
+    print(f"FAIL: gradio {gradio.__version__} — app.py needs 4.x (show_api).")
+    ok = False
+else:
+    print(f"gradio {gradio.__version__} OK")
 
 # Touches the whole beauty plugin chain, which is where the gradio
 # dependency hides. If this imports, the API path is clear.
