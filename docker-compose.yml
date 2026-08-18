@@ -358,9 +358,11 @@ services:
     profiles: ["idphoto"]      # Never auto-starts; keep out of COMPOSE_PROFILES
     restart: "no"              # Manual start only — this is a scratch sandbox
     volumes:
-      - ./data/idphoto/src:/workspace                    # git clone + weights — survive container deletion
-      - ./data/idphoto/pip-cache:/root/.cache/pip        # makes reinstall-after-reset take seconds
-      - ./services/idphoto/run.sh:/usr/local/bin/run.sh:ro  # launcher — readable/editable on the host
+      # src + pip-cache live under MODELS_PATH (/Development, 1 TB) — keeps the
+      # ~330 MB of weights and the pip cache off the 196 GB system disk.
+      - ${MODELS_PATH:-./models}/idphoto/src:/workspace              # git clone + weights — survive container deletion
+      - ${MODELS_PATH:-./models}/idphoto/pip-cache:/root/.cache/pip  # makes reinstall-after-reset take seconds
+      - ./services/idphoto/run.sh:/usr/local/bin/run.sh:ro           # launcher — readable/editable on the host
     environment:
       - IDPHOTO_DEVICE=${IDPHOTO_DEVICE:-cpu}
       - TZ=Asia/Hong_Kong
