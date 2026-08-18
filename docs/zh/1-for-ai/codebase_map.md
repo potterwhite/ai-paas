@@ -6,7 +6,7 @@
 >
 > **维护规则：** 任何 AI Agent 修改了本文档中列出的文件，必须在同一个 commit/会话中更新本文档对应章节。
 >
-> 最后更新：2026-08-18（新增 idphoto 手动安装沙箱）
+> 最后更新：2026-08-18（idphoto 工作目录迁至 MODELS_PATH，默认设备改为 gpu）
 >
 
 ---
@@ -34,13 +34,13 @@
 │   │   └── app/                            ←   FastAPI app
 │   ├── idphoto/                            ←   HivisionIDPhotos 手动安装沙箱
 │   │   ├── Dockerfile                      ←     空壳镜像（仅 apt 系统库，无 pip 包）
-│   │   ├── run.sh                          ←     启动器（读 IDPHOTO_DEVICE 切 cpu/gpu）
+│   │   ├── run.sh                          ←     启动器（读 IDPHOTO_DEVICE 切 gpu/cpu，默认 gpu）
 │   │   └── README.md                       ←     手动安装步骤
 │   └── comfyui/                            ←   ComfyUI 部署脚本 + 工作流
 ├── data/                                   ← 运行时数据
 │   ├── router_redis/                       ←   Redis data (Phase 4)
 │   ├── router_db/                          ←   Router SQLite (Phase 4)
-│   ├── idphoto/                            ←   HivisionIDPhotos 代码 + 权重 + pip 缓存（git-ignored）
+│   ├── idphoto/                            ←   已迁出 → `${MODELS_PATH}/idphoto`（独立 1 TB 盘）
 │   └── comfyui_workdir/                    ←   ComfyUI 状态
 ├── docs/
 │   └── zh/
@@ -151,17 +151,23 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
 - 底座：`nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04`（Ubuntu 22.04 → python 3.10，
   满足项目 `numpy<=1.26.4` 约束；带 CUDA 使 cpu/gpu 两条路都可用）
 - 持久化（bind mount，删容器不丢）：
-  - `./data/idphoto/src` → `/workspace` — git clone + 模型权重
-  - `./data/idphoto/pip-cache` → `/root/.cache/pip` — 重装走缓存
+  - `${MODELS_PATH}/idphoto/src` → `/workspace` — git clone + 模型权重
+  - `${MODELS_PATH}/idphoto/pip-cache` → `/root/.cache/pip` — 重装走缓存
   - `./services/idphoto/run.sh` → `/usr/local/bin/run.sh:ro` — 启动器
+  - ⚠️ 放在 `MODELS_PATH`（`/Development`，独立 1 TB 盘）而非仓库内 —
+    权重 + pip 缓存近 1 GB，不占 196 GB 系统盘。
 - 重置：`docker compose rm -sf idphoto && docker compose --profile idphoto up -d idphoto`
-- **设备切换：** `.env` 中 `IDPHOTO_DEVICE=cpu|gpu`。HivisionIDPhotos 没有 device 参数，
-  它靠 `onnxruntime.get_device()` 判断并在 CUDA 初始化失败时回退 CPU，
-  所以 `run.sh` 通过 `CUDA_VISIBLE_DEVICES` 驱动切换。
+- **设备切换：** `.env` 中 `IDPHOTO_DEVICE=gpu|cpu`，**默认 `gpu`**。
+  HivisionIDPhotos 没有 device 参数，它靠 `onnxruntime.get_device()` 判断并在
+  CUDA 初始化失败时回退 CPU，所以 `run.sh` 通过 `CUDA_VISIBLE_DEVICES` 驱动切换。
+- ⚠️ **gpu 模式还必须装 `onnxruntime-gpu`** — `requirements.txt` 里写的是 CPU 专用的
+  `onnxruntime`，装它 `get_device()` 永远返回 `"CPU"`，**不报错、静默走 CPU**。
+  须 `pip uninstall onnxruntime && pip install onnxruntime-gpu>=1.19`
+  （1.19+ 对应 cuDNN 9，与底座镜像一致；1.18 及以下是 cuDNN 8，会报缺 `libcudnn.so.8`）。
 - ⚠️ **gpu 模式必须先停所有 `ai_vllm_*`** — birefnet-v1-lite 需 ~16 GB 显存，
   vLLM 占 24 GB 中的 ~22 GB，单卡装不下。
 - ⚠️ **画质与设备无关** — cpu/gpu 用同一份 `.onnx` 权重，输出一致，仅速度不同。
-- 抠图模型画质排序：`birefnet-v1-lite`（224MB，最好）> `rmbg-1.4`（176MB）> `modnet`（24.7MB）
+- 抠图模型画质排序：`birefnet-v1-lite`（214MB，最好）> `rmbg-1.4`（176MB）> `modnet`（24.7MB）
 
 ---
 
@@ -293,5 +299,5 @@ Model Name:    qwen
 | `router_db` | `./data/router_db` | Router SQLite 数据库 |
 | `router_redis` | `./data/router_redis` | Redis 持久化数据 |
 | `rag_chroma` | `./data/rag_chroma` | ChromaDB 向量索引 |
-| `idphoto` | `./data/idphoto` | HivisionIDPhotos 代码 (`src/`) + 模型权重 + pip 缓存 |
+| `idphoto` | `${MODELS_PATH}/idphoto` | HivisionIDPhotos 代码 (`src/`) + 模型权重 + pip 缓存 — 在 `/Development` 独立盘，不在仓库内 |
 | `comfyui_workdir` | `./data/comfyui_workdir` | ComfyUI 状态 |

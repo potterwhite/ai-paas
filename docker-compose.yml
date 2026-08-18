@@ -347,7 +347,7 @@ services:
   #     No published port on purpose: ai_webapp reaches the API over the
   #     internal network at http://ai_idphoto:8080. To poke it by hand,
   #     curl 127.0.0.1:8080 from inside the container.
-  #     Device: IDPHOTO_DEVICE=cpu|gpu in .env — see services/idphoto/run.sh
+  #     Device: IDPHOTO_DEVICE=gpu|cpu in .env — see services/idphoto/run.sh
   #     ⚠️ GPU mode requires every ai_vllm_* to be stopped first:
   #        birefnet-v1-lite wants ~16 GB VRAM, vLLM holds ~22 GB of 24 GB.
   #        Image quality is identical on cpu — only speed differs.
@@ -364,8 +364,12 @@ services:
       - ${MODELS_PATH:-./models}/idphoto/pip-cache:/root/.cache/pip  # makes reinstall-after-reset take seconds
       - ./services/idphoto/run.sh:/usr/local/bin/run.sh:ro           # launcher — readable/editable on the host
     environment:
-      - IDPHOTO_DEVICE=${IDPHOTO_DEVICE:-cpu}
+      - IDPHOTO_DEVICE=${IDPHOTO_DEVICE:-gpu}
       - TZ=Asia/Hong_Kong
+      # Domestic PyPI mirror — onnxruntime-gpu alone is ~200 MB and the
+      # upstream index is slow from here. Env var, so no rebuild needed.
+      - PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+      - PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
     deploy:                    # Exposes the GPU; consumes no VRAM until a process allocates
       resources:
         reservations:

@@ -10,11 +10,12 @@
 # calls onnxruntime.get_device() and then falls back to CPU if the CUDA
 # provider fails to initialise. So we drive it via CUDA_VISIBLE_DEVICES.
 #
-#   cpu (default) — CUDA hidden -> CPUExecutionProvider.
-#                   Image quality is IDENTICAL to gpu; only slower.
-#   gpu           — requires every ai_vllm_* container to be STOPPED:
-#                   birefnet-v1-lite wants ~16 GB VRAM and vLLM holds ~22 GB
-#                   of this 24 GB card, so they cannot coexist.
+#   gpu (default) — CUDA exposed -> CUDAExecutionProvider. Requires every
+#                   ai_vllm_* container to be STOPPED: birefnet-v1-lite
+#                   wants ~16 GB VRAM and vLLM holds ~22 GB of this 24 GB
+#                   card, so they cannot coexist.
+#   cpu           — CUDA hidden -> CPUExecutionProvider. Image quality is
+#                   IDENTICAL to gpu; only slower.
 # ============================================================
 set -euo pipefail
 
@@ -22,18 +23,18 @@ cd /workspace
 
 if [ ! -f deploy_api.py ]; then
     echo "[run.sh] deploy_api.py not found in /workspace."
-    echo "[run.sh] Clone the repo into data/idphoto/src first — see services/idphoto/README.md"
+    echo "[run.sh] Clone the repo into \$MODELS_PATH/idphoto/src first — see services/idphoto/README.md"
     exit 1
 fi
 
-case "${IDPHOTO_DEVICE:-cpu}" in
-    gpu)
-        export CUDA_VISIBLE_DEVICES=0
-        echo "[run.sh] device=gpu — make sure ai_vllm_* are stopped (birefnet needs ~16 GB VRAM)"
-        ;;
-    *)
+case "${IDPHOTO_DEVICE:-gpu}" in
+    cpu)
         export CUDA_VISIBLE_DEVICES=""
         echo "[run.sh] device=cpu — the CUDA init warning printed below is EXPECTED and harmless"
+        ;;
+    *)
+        export CUDA_VISIBLE_DEVICES=0
+        echo "[run.sh] device=gpu — make sure ai_vllm_* are stopped (birefnet needs ~16 GB VRAM)"
         ;;
 esac
 
