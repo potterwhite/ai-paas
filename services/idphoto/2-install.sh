@@ -83,6 +83,33 @@ if int(gradio.__version__.split(".")[0]) >= 5:
 else:
     print(f"gradio {gradio.__version__} OK")
 
+# The next two only fail on the first HTTP request, long after this script
+# would have said OK, so assert them here.
+
+# gradio/routes.py:432 uses TemplateResponse(name, context), the positional
+# order starlette 1.0 removed. Symptom is TypeError: unhashable type: 'dict'.
+import starlette
+if int(starlette.__version__.split(".")[0]) >= 1:
+    print(f"FAIL: starlette {starlette.__version__} — gradio 4.x needs <1.0 "
+          "(old TemplateResponse argument order).")
+    ok = False
+else:
+    print(f"starlette {starlette.__version__} OK")
+
+# pydantic >=2.11 emits `additionalProperties: true` for FileData.meta, and
+# gradio_client 1.3.0 recurses into that bool. Assert the behaviour rather
+# than the version number — this is the exact call GET / makes.
+import pydantic
+from gradio.data_classes import FileData
+import gradio_client.utils as gc_utils
+try:
+    gc_utils.json_schema_to_python_type(FileData.model_json_schema())
+    print(f"pydantic {pydantic.VERSION} OK (FileData schema round-trips)")
+except TypeError as e:
+    print(f"FAIL: pydantic {pydantic.VERSION} breaks gradio_client schema "
+          f"parsing ({e}). Every page load would 500.")
+    ok = False
+
 # Touches the whole beauty plugin chain, which is where the gradio
 # dependency hides. If this imports, the API path is clear.
 from hivision import IDCreator  # noqa: F401

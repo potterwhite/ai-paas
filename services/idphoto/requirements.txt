@@ -13,7 +13,7 @@ numpy<=1.26.4
 requests
 mtcnn-runtime
 tqdm
-starlette
+starlette  # capped in fix 4 below
 
 # ---- fix 1: upstream forgot Pillow ----
 # hivision/utils.py:3 and hivision/creator/human_matting.py:11 both do
@@ -69,3 +69,28 @@ gradio>=4.43.0,<5
 # 1.x and `import gradio` dies with ImportError before anything runs.
 # Cap on our side; gradio 4.x is EOL and will never ship the fix.
 huggingface-hub>=0.19.3,<1.0
+
+# ---- fix 4: gradio 4.x's transitive web stack has drifted past it ----
+# Both of these pass `pip install` and both pass `import gradio`. They only
+# fail on the first HTTP request, which is why 2-install.sh asserts them.
+#
+# starlette: gradio/routes.py:432 calls the old positional form,
+#   TemplateResponse("frontend/index.html", {"request": request, ...}).
+#   starlette 0.29 added the new (request, name, context) order and
+#   deprecated the old one; starlette 1.0 REMOVED it. So `name` now receives
+#   the context dict and jinja2 tries to use a dict as a cache key:
+#   `TypeError: unhashable type: 'dict'`. Only fastapi pins starlette, and
+#   fastapi allows 1.x, so the cap has to be ours.
+#
+# pydantic: gradio.data_classes.FileData declares `meta` as a bare dict.
+#   pydantic 2.11 started emitting `"additionalProperties": true` for that
+#   (2.10.6 emits nothing — verified by bisect). gradio_client 1.3.0's
+#   utils.py:955 assumes additionalProperties is a schema dict and recurses
+#   into it, then utils.py:863 does `if "const" in schema` against the bool:
+#   `TypeError: argument of type 'bool' is not iterable`. This fires inside
+#   get_api_info(), which GET / calls, so every page load 500s. Gradio's own
+#   startup probe then reports the misleading
+#   `ValueError: When localhost is not accessible, a shareable link must be
+#   created` — that is a symptom, not the bug.
+starlette<1.0
+pydantic<2.11
