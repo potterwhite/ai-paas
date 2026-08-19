@@ -22,6 +22,7 @@
 ├── .env.example                            ← .env 模板
 ├── .gitignore
 ├── paas-controller.sh                      ← 管理脚本（数据清理、服务控制）
+├── models-link → ${MODELS_PATH}            ← 符号链接，`prepare` 建 / `cleanall` 删（git-ignored）
 ├── models/                                 ← 模型权重文件（由 MODELS_PATH 环境变量指定宿主机路径）
 │   ├── qwen2.5-32b-instruct-awq/           ←   生产模型（32B AWQ 4-bit）
 │   ├── gemma-4-26B-A4B/                    ←   Gemma 4 原始权重（BF16，待 AWQ 量化）
@@ -357,6 +358,10 @@ Model Name:    qwen
 | ComfyUI 模型 | `models/comfyui/` | ~31 GB | ⏸ ComfyUI 专用 |
 
 **模型存储路径：** 由 `.env` 中 `MODELS_PATH` 控制（默认 `./models`，当前指向 `/Development/docker/docker-volumes/ai_paas`）。
+
+设置了 `MODELS_PATH` 时，`./paas-controller.sh prepare` 会在仓库根目录建立 `models-link` 符号链接
+指向该路径（`scripts/core.sh` → `ensure_models_link()`），`cleanall` 用 `remove_models_link()` 删除它。
+链接已加入 `.gitignore`，仅为本机浏览方便 — 容器挂载仍直接使用 `MODELS_PATH` 绝对路径。
 
 ## 运行时数据目录
 

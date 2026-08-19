@@ -36,6 +36,13 @@ if [[ -f "${SCRIPT_DIR}/.env" ]]; then
 fi
 MODELS_DIR="${MODELS_PATH:-${SCRIPT_DIR}/models}"
 
+# ── Models symlink ───────────────────────────────────────────────────────────
+# When MODELS_PATH points outside the repo, `prepare` drops a fixed-name symlink
+# at the repo root so models can be browsed without recalling the .env value.
+# `cleanall` removes it again. Git-ignored — see .gitignore.
+MODELS_LINK="${SCRIPT_DIR}/models-link"
+MODELS_LINK_NAME="$(basename "${MODELS_LINK}")"
+
 # Find docker-compose.yml file
 DOCKER_COMPOSE_FILE=""
 if [[ -f "${SCRIPT_DIR}/docker-compose.yml" ]]; then
@@ -73,6 +80,46 @@ check_dir() {
     if [[ -z "${DOCKER_COMPOSE_FILE}" ]] || [[ ! -f "${DOCKER_COMPOSE_FILE}" ]]; then
         log_error "Cannot find docker-compose.yml. Please run from ai-paas project root."
         exit 1
+    fi
+}
+
+# Create (or re-point) the models symlink at the repo root.
+# No-op when MODELS_PATH is unset: MODELS_DIR is then already ${SCRIPT_DIR}/models.
+ensure_models_link() {
+    if [[ -z "${MODELS_PATH:-}" ]]; then
+        return 0
+    fi
+
+    local target="${MODELS_PATH%/}"
+
+    if [[ ! -d "${target}" ]]; then
+        log_warn "MODELS_PATH does not exist: ${target}"
+        log_warn "Skipping ${MODELS_LINK_NAME} symlink."
+        return 0
+    fi
+
+    if [[ -L "${MODELS_LINK}" ]]; then
+        if [[ "$(readlink -f "${MODELS_LINK}")" == "$(readlink -f "${target}")" ]]; then
+            log_info "Models symlink OK: ${MODELS_LINK_NAME} -> $(readlink "${MODELS_LINK}")"
+            return 0
+        fi
+        log_warn "Re-pointing ${MODELS_LINK_NAME}: $(readlink "${MODELS_LINK}") -> ${target}"
+        rm -f "${MODELS_LINK}"
+    elif [[ -e "${MODELS_LINK}" ]]; then
+        # A real file or directory occupies the name — never delete it silently.
+        log_error "${MODELS_LINK} exists and is not a symlink. Move it aside and re-run."
+        return 1
+    fi
+
+    ln -s "${target}" "${MODELS_LINK}"
+    log_info "Created models symlink: ${MODELS_LINK_NAME} -> ${target}"
+}
+
+# Remove the models symlink. Only ever unlinks — never touches the target.
+remove_models_link() {
+    if [[ -L "${MODELS_LINK}" ]]; then
+        rm -f "${MODELS_LINK}"
+        log_info "Removed models symlink: ${MODELS_LINK_NAME}"
     fi
 }
 

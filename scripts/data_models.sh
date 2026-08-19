@@ -493,6 +493,9 @@ prepare_vllm() {
 prepare() {
     local arg="${1:-}"
 
+    # Expose MODELS_PATH inside the repo before anything reads/writes models.
+    ensure_models_link || return 1
+
     case "$arg" in
         comfyui)
             prepare_comfyui
@@ -533,6 +536,9 @@ cleanall() {
     # Step 3: Fix permissions and clean ALL models (reuse helper with full cleanup flag)
     fix_permissions "${MODELS_DIR}"
     cleanup_models_directory true
+
+    # Step 4: Drop the repo-root models symlink; `prepare` recreates it.
+    remove_models_link
 
     log_info "Full cleanup complete."
     log_warn "Please re-download required models before starting services again."
