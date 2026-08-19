@@ -1,5 +1,30 @@
 # Changelog
 
+## [2.4.0](https://github.com/potterwhite/ai-paas/compare/v2.3.0...v2.4.0) (2026-08-19)
+
+
+### ✨ Added
+
+* add idphoto manual-install sandbox for HivisionIDPhotos ([cb960d1](https://github.com/potterwhite/ai-paas/commit/cb960d1773859a6fb5a208aa97d0ed92282ea210))
+* add pull_image_fast.sh for aria2c-based image pulls ([643e1c3](https://github.com/potterwhite/ai-paas/commit/643e1c3fdf6b549f480d9cca5c726920096c08fb))
+* auto-create models-link symlink to MODELS_PATH on prepare ([e5dd535](https://github.com/potterwhite/ai-paas/commit/e5dd53592ded4cd921b94e06676232eb0b6ba5de))
+* drive GPU exclusivity from gpu-registry.json, add idphoto mode ([873943a](https://github.com/potterwhite/ai-paas/commit/873943a15f1fc74ca648f90248a5641c9414ba60))
+* idphoto defaults to gpu, workdir on MODELS_PATH ([c75c717](https://github.com/potterwhite/ai-paas/commit/c75c7178226726500a2c60480d65e736076f95f8))
+* idphoto webui via webapp proxy + GPU registry as single source of truth ([7ee4e66](https://github.com/potterwhite/ai-paas/commit/7ee4e66b9d359640f741d1f5268ac3cccd099b2f))
+* serve idphoto webui via webapp proxy, unpublish port 7860 ([e1b4f21](https://github.com/potterwhite/ai-paas/commit/e1b4f211ca1967acfa64a45f11bc1c1ab1ee12d3))
+
+
+### 🐛 Fixed
+
+* add copyright block ([6d9ee5a](https://github.com/potterwhite/ai-paas/commit/6d9ee5afbe6fe14492d97b52fd1944a0732ca53f))
+* add copyright for *.sh ([25f611c](https://github.com/potterwhite/ai-paas/commit/25f611c1a502b659648a611612d7ba9fc4cee6fe))
+* add Node.js runtime for yt-dlp YouTube JS challenge solving ([5d166d5](https://github.com/potterwhite/ai-paas/commit/5d166d53e5b6971e2f79c4074978b6c5db01122b))
+* disable vLLM auto-start on boot to allow GPU reset ([f6787d0](https://github.com/potterwhite/ai-paas/commit/f6787d0a03643e264719749ffbe089898e5511e5))
+* emit docker-archive, not OCI layout ([0718de5](https://github.com/potterwhite/ai-paas/commit/0718de51c6f8716031a19db8e6fbdffc68e4b50a))
+* idphoto container volume base dir ([c6e4218](https://github.com/potterwhite/ai-paas/commit/c6e42189b83d64f240d7052185fecedcd62c5c13))
+* **idphoto:** cap starlette and pydantic for gradio 4.x ([335293a](https://github.com/potterwhite/ai-paas/commit/335293a7495e15bf802b72b1b7d070401b17ba2e))
+* **idphoto:** repair onnxruntime post-install, cap gradio and huggingface_hub ([ca3dcb2](https://github.com/potterwhite/ai-paas/commit/ca3dcb27500ade2761a16907aacd4c8bf4653369))
+
 ## [2.3.0](https://github.com/potterwhite/ai-paas/compare/v2.2.1...v2.3.0) (2026-05-12)
 
 
