@@ -8,9 +8,6 @@
 #
 # Base: CUDA 12.6 + cuDNN 9 runtime on Ubuntu 22.04 (-> python 3.10,
 # which satisfies HivisionIDPhotos' numpy<=1.26.4 constraint).
-# Shipping CUDA here means BOTH cpu and gpu inference are possible;
-# which one actually runs is decided at launch time by IDPHOTO_DEVICE
-# (see run.sh) — no rebuild needed to switch.
 #
 # Broke your install? Throw the container away; this shell is unchanged:
 #   docker compose rm -sf idphoto
@@ -38,6 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /workspace
 
-# Stay alive doing nothing, so you can `docker exec -it ai_idphoto bash`.
-# The app is started by hand (or via run.sh), never by this image.
-CMD ["sleep", "infinity"]
+# 0-entrypoint.sh starts the WebUI if the pip deps are installed, and idles
+# with instructions if they are not. It lives on the bind mount at
+# /opt/idphoto (see docker-compose.yml), so editing it on the host takes
+# effect on the next container start with no rebuild.
+ENTRYPOINT ["/opt/idphoto/0-entrypoint.sh"]

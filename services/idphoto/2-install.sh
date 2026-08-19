@@ -119,4 +119,4 @@ sys.exit(0 if ok else 1)
 PY
 
 echo
-echo "OK. Next: docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh"
+echo "OK. Next: docker restart ai_idphoto   (0-entrypoint.sh then starts the WebUI)"

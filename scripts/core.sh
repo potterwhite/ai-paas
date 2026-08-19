@@ -75,3 +75,42 @@ check_dir() {
         exit 1
     fi
 }
+
+# ── GPU registry ─────────────────────────────────────────────────────────────
+# config/gpu-registry.json is the single source of truth for GPU container
+# names, their compose profiles and which of them are card-exclusive. Router
+# and ai_webapp read the same file — see its "_doc" block.
+GPU_REGISTRY_FILE="${SCRIPT_DIR}/config/gpu-registry.json"
+
+# Run a jq filter over the registry. Fails loudly rather than falling back to a
+# guess: a missing container name here would make `stop-all` quietly leave a
+# GPU container running, which is the failure this registry exists to prevent.
+gpu_registry() {
+    if [[ ! -f "${GPU_REGISTRY_FILE}" ]]; then
+        log_error "GPU registry not found: ${GPU_REGISTRY_FILE}"
+        exit 1
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+        log_error "jq is required to read ${GPU_REGISTRY_FILE} (apt-get install jq)"
+        exit 1
+    fi
+    jq -r "$1" "${GPU_REGISTRY_FILE}"
+}
+
+# jq prelude: registry entries only, skipping "_"-prefixed documentation keys.
+_GPU_ENTRIES='.containers | to_entries[] | select(.key | startswith("_") | not) | .value'
+
+# Compose profile names of every profile-gated GPU container, as `--profile x`
+# flags. Needed for `down`: compose ignores profile-gated services otherwise.
+gpu_profile_flags() {
+    local p
+    for p in $(gpu_registry "${_GPU_ENTRIES} | select(.profile != null) | .profile"); do
+        printf -- '--profile %s ' "$p"
+    done
+}
+
+# Compose service keys of the card-exclusive containers. Exactly one of these
+# may hold the GPU at a time, so they get created but never bulk-started.
+gpu_exclusive_services() {
+    gpu_registry "${_GPU_ENTRIES} | select(.exclusive) | .compose_service"
+}

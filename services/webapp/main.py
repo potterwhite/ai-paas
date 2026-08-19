@@ -82,8 +82,53 @@ HF_TOKEN         = os.getenv("HF_TOKEN", "")                    # optional; set 
 COMFYUI_MODELS_HDD = os.getenv("COMFYUI_MODELS_HDD", "")        # host path for large models (HDD)
 COMFYUI_WORKFLOWS_DIR = os.getenv("COMFYUI_WORKFLOWS_DIR", "/comfyui_workflows")  # built-in workflow JSONs
 
+# ── GPU registry ─────────────────────────────────────────────────────────────
+# config/gpu-registry.json is the single source of truth for which containers
+# touch the GPU, which of them are card-exclusive, and how long they take to
+# start. Router and scripts/service.sh read the same file — see its "_doc"
+# block. Nothing below hardcodes a container name.
+GPU_REGISTRY_PATH = os.getenv("GPU_REGISTRY_PATH", "/config/gpu-registry.json")
+
+
+def _load_gpu_registry(path: str) -> dict:
+    """Read the GPU registry, or fail loudly.
+
+    No built-in fallback on purpose: a stale hardcoded copy of the container
+    list is exactly what this registry exists to eliminate, and a wrong name
+    would let the panel offer to start something that then fights vLLM for VRAM.
+    """
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"GPU registry not found at '{path}'. Mount config/gpu-registry.json "
+            "into this container (see docker-compose.yml) or set GPU_REGISTRY_PATH."
+        ) from None
+    # Keys starting with "_" are documentation blocks, not container entries.
+    return {k: v for k, v in raw["containers"].items() if not k.startswith("_")}
+
+
+GPU_REGISTRY = _load_gpu_registry(GPU_REGISTRY_PATH)
+
 # Containers the GPU panel is allowed to start/stop (whitelist — safety)
-GPU_MANAGED_CONTAINERS = ["ai_vllm_qwen", "ai_vllm_gemma", "ai_whisper", "ai_comfyui"]
+GPU_MANAGED_CONTAINERS = [cfg["container"] for cfg in GPU_REGISTRY.values()]
+
+# Containers that need the whole card. Starting any one of these stops the rest,
+# because a 24 GB RTX 3090 with no MIG fits exactly one of them.
+GPU_EXCLUSIVE_CONTAINERS = [
+    cfg["container"] for cfg in GPU_REGISTRY.values() if cfg["exclusive"]
+]
+
+# container name → rough cold-start seconds, for the switching banner
+GPU_STARTUP_SEC = {
+    cfg["container"]: cfg.get("startup_sec", 30) for cfg in GPU_REGISTRY.values()
+}
+
+# container name → human label
+GPU_DISPLAY_NAMES = {
+    cfg["container"]: cfg.get("display_name", cfg["container"])
+    for cfg in GPU_REGISTRY.values()
+}
 
 # ── In-memory download task registry ─────────────────────────────────────────
 # { task_id: {"status": ..., "log": [...], "repo_id": str, "local_dir": str, "progress": {...}} }
@@ -2992,7 +3037,24 @@ loadWorkflowBrowser();
 # ── /gpu ─────────────────────────────────────────────────────────────────────
 @app.get("/gpu", response_class=HTMLResponse)
 async def gpu_page():
-    body = """
+    # Inject the GPU registry as JS constants instead of hardcoding container
+    # names in the script below. Concatenated rather than interpolated because
+    # the template is a plain string full of JS braces.
+    registry_js = (
+        "<script>\n"
+        f"const GPU_EXCLUSIVE = {json.dumps(GPU_EXCLUSIVE_CONTAINERS)};\n"
+        f"const GPU_STARTUP_SEC = {json.dumps(GPU_STARTUP_SEC)};\n"
+        f"const GPU_DISPLAY_NAMES = {json.dumps(GPU_DISPLAY_NAMES, ensure_ascii=False)};\n"
+        "// Containers that cannot share the card with `name`.\n"
+        "function gpuConflicts(name, containers) {\n"
+        "  if (!GPU_EXCLUSIVE.includes(name)) return [];\n"
+        "  return containers.filter(function(c) {\n"
+        "    return c.status === 'running' && c.name !== name && GPU_EXCLUSIVE.includes(c.name);\n"
+        "  }).map(function(c) { return c.name; });\n"
+        "}\n"
+        "</script>\n"
+    )
+    body = registry_js + """
 <div id="dependency-alert" style="display:none;"></div>
 
 <div class="card">
@@ -3191,22 +3253,10 @@ async function ctrlContainer(action, name) {
   var toStopForBanner = [];
 
   if (action === 'start') {
-    // VRAM conflict: any vllm <-> comfyui are mutually exclusive
-    // Also vllm containers conflict with each other (only one can run)
-    var mustStop = [];
-    var isVllm = name.startsWith('ai_vllm_');
-    if (isVllm) {
-      // Starting a vllm: stop comfyui AND any other running vllm
-      mustStop = containers.filter(function(c) {
-        return c.status === 'running' && c.name !== name &&
-               (c.name === 'ai_comfyui' || c.name.startsWith('ai_vllm_'));
-      }).map(function(c) { return c.name; });
-    } else if (name === 'ai_comfyui') {
-      // Starting comfyui: stop all vllm containers
-      mustStop = containers.filter(function(c) {
-        return c.status === 'running' && c.name.startsWith('ai_vllm_');
-      }).map(function(c) { return c.name; });
-    }
+    // One card, one holder: every GPU_EXCLUSIVE container conflicts with every
+    // other one (all vllm variants, comfyui, idphoto). Membership comes from
+    // config/gpu-registry.json — see gpuConflicts() at the top of this page.
+    var mustStop = gpuConflicts(name, containers);
     toStopForBanner = mustStop;
 
     if (mustStop.length) {
@@ -3215,17 +3265,15 @@ async function ctrlContainer(action, name) {
       estSec += mustStop.length * 20;
       lines.push('');
     }
-    lines.push('然后启动：  ✅ ' + name);
+    lines.push('然后启动：  ✅ ' + (GPU_DISPLAY_NAMES[name] || name));
 
-    // Estimated startup time
-    var estStart = name.startsWith('ai_vllm_') ? 120 : (name === 'ai_comfyui' ? 60 : 15);
-    estSec += estStart;
+    // Estimated startup time, from the registry's startup_sec
+    estSec += (GPU_STARTUP_SEC[name] || 30);
 
-    if (name.startsWith('ai_vllm_')) {
-      lines.push('');
+    lines.push('');
+    if (estSec >= 90) {
       lines.push('预计时间：约 ' + Math.round(estSec/60) + ' 分钟（模型加载）');
     } else {
-      lines.push('');
       lines.push('预计时间：约 ' + estSec + ' 秒');
     }
   } else {
@@ -3259,20 +3307,10 @@ async function ctrlContainer(action, name) {
     });
   }
 
-  // If starting with conflicts, stop conflicting containers first
+  // If starting with conflicts, stop conflicting containers first.
+  // Same set the confirmation dialog listed — reuse it rather than recompute.
   if (action === 'start') {
-    var isVllm2 = name.startsWith('ai_vllm_');
-    var toStop = [];
-    if (isVllm2) {
-      toStop = containers.filter(function(c) {
-        return c.status === 'running' && c.name !== name &&
-               (c.name === 'ai_comfyui' || c.name.startsWith('ai_vllm_'));
-      }).map(function(c) { return c.name; });
-    } else if (name === 'ai_comfyui') {
-      toStop = containers.filter(function(c) {
-        return c.status === 'running' && c.name.startsWith('ai_vllm_');
-      }).map(function(c) { return c.name; });
-    }
+    var toStop = toStopForBanner;
     for (var i = 0; i < toStop.length; i++) {
       try {
         await fetch('/api/container/stop/' + toStop[i], {method:'POST'});
@@ -4328,9 +4366,9 @@ async def api_models_available():
         return JSONResponse({"models": [], "active_model": None, "error": "Router unavailable"})
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Containers available for log viewing (all managed + infra containers)
-LOG_CONTAINERS = [
-    "ai_vllm_qwen", "ai_vllm_gemma", "ai_whisper", "ai_comfyui",
+# Containers available for log viewing: every GPU container from the registry,
+# plus the always-on infra containers (which have no GPU reservation).
+LOG_CONTAINERS = GPU_MANAGED_CONTAINERS + [
     "ai_router", "ai_router_worker", "ai_router_redis", "ai_webapp",
 ]
 
@@ -4517,7 +4555,14 @@ ROUTER_URL = os.getenv("ROUTER_URL", "http://ai_router:4001")
 
 @app.get("/queue", response_class=HTMLResponse)
 async def get_queue_page():
-    body = """
+    # Container list comes from config/gpu-registry.json, injected rather than
+    # hardcoded. Concatenated because the template below is a plain string.
+    registry_js = (
+        "<script>\n"
+        f"const GPU_MANAGED = {json.dumps(GPU_MANAGED_CONTAINERS)};\n"
+        "</script>\n"
+    )
+    body = registry_js + """
 <style>
   #queue-box { font-family: monospace; white-space: pre-wrap; background: #111; color: #0f0;
               padding: 12px; border-radius: 8px; max-height: 70vh; overflow-y: auto; min-height: 100px; }
@@ -4553,7 +4598,7 @@ async function refreshQueue() {
     const tData = tResp.ok ? await tResp.json() : {};
 
     status.textContent = '队列: ' + (qData.queue_size || 0) + ' 个任务 | ' +
-      ['ai_vllm_qwen', 'ai_vllm_gemma', 'ai_whisper', 'ai_comfyui']
+      GPU_MANAGED
         .map(c => c + ': ' + (tData.containers && tData.containers[c] || '未知'))
         .join(' | ');
 

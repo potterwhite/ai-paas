@@ -40,16 +40,17 @@ from app.core.router_engine import (
     detect_active_llm_model,
     switch_to_llm_mode,
     switch_to_llm_model,
-    switch_to_comfyui_mode,
+    switch_to_gpu_service,
 )
 
 router = APIRouter()
 
-# Whitelist for safety — includes all vLLM model containers + whisper + comfyui
-MANAGED_CONTAINERS = (
-    [cfg["container"] for cfg in settings.VLLM_MODELS.values()]
-    + ["ai_whisper", "ai_comfyui"]
-)
+# Whitelist for safety — every GPU container in config/gpu-registry.json.
+# Adding a container to the registry is enough; no edit needed here.
+MANAGED_CONTAINERS = [cfg["container"] for cfg in settings.GPU_CONTAINERS.values()]
+
+# Valid values for POST /gpu/mode
+GPU_MODES = ["llm"] + list(settings.GPU_SERVICES.keys())
 
 
 class ContainerAction(BaseModel):
@@ -58,7 +59,7 @@ class ContainerAction(BaseModel):
 
 
 class GpuModeAction(BaseModel):
-    mode: str  # "llm" | "comfyui"
+    mode: str  # "llm" or any GPU_SERVICES key ("comfyui", "idphoto", ...)
     model: str = ""  # optional: specific model_id for llm mode (e.g. "qwen-32b", "gemma-4-26b")
 
 
@@ -70,6 +71,8 @@ async def gpu_status():
         "containers": get_container_status(MANAGED_CONTAINERS),
         "current_mode": detect_gpu_mode(),
         "active_model": detect_active_llm_model(),
+        "registry": settings.GPU_CONTAINERS,
+        "modes": GPU_MODES,
     }
 
 
@@ -94,8 +97,9 @@ async def control_container(action: ContainerAction):
 
 @router.post("/gpu/mode")
 async def switch_gpu_mode(action: GpuModeAction):
-    """Switch GPU mode: 'llm' or 'comfyui'. Stops conflicting containers.
+    """Switch GPU mode: 'llm' or any registered GPU service ('comfyui', 'idphoto').
 
+    Whichever target is picked, everything else holding the card is stopped first.
     For 'llm' mode, optionally specify 'model' to pick a specific LLM.
     If model is omitted, uses the default or keeps the currently running model.
     """
@@ -104,10 +108,10 @@ async def switch_gpu_mode(action: GpuModeAction):
             result = switch_to_llm_model(action.model)
         else:
             result = switch_to_llm_mode()
-    elif action.mode == "comfyui":
-        result = switch_to_comfyui_mode()
+    elif action.mode in settings.GPU_SERVICES:
+        result = switch_to_gpu_service(action.mode)
     else:
-        return {"error": f"Unknown mode '{action.mode}'. Use 'llm' or 'comfyui'."}
+        return {"error": f"Unknown mode '{action.mode}'. Use one of: {GPU_MODES}"}
 
     # Propagate engine-level errors (e.g. missing model weights) as HTTP 400
     if "error" in result:

@@ -22,16 +22,21 @@
 """Celery task definitions."""
 
 from app.core.celery_app import celery_app
-from app.core.router_engine import switch_to_llm_mode, switch_to_comfyui_mode
+from app.config import settings
+from app.core.router_engine import (
+    switch_to_llm_mode,
+    switch_to_comfyui_mode,
+    switch_to_gpu_service,
+)
 
 
 @celery_app.task(name="tasks.switch_gpu_mode")
 def switch_gpu_mode(target: str) -> dict:
-    """Switch GPU mode between LLM and ComfyUI via container management."""
+    """Switch GPU mode: 'llm' or any registered GPU service ('comfyui', 'idphoto')."""
     if target == "llm":
         return switch_to_llm_mode()
-    elif target == "comfyui":
-        return switch_to_comfyui_mode()
+    elif target in settings.GPU_SERVICES:
+        return switch_to_gpu_service(target)
     return {"error": f"Unknown target mode: {target}"}
 
 

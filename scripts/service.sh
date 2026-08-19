@@ -33,11 +33,35 @@ show_containers() {
     docker ps --filter "name=ai_" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 }
 
+# Create every GPU-exclusive container without starting it.
+#
+# The Router start/stops containers through the Docker SDK, which only works on
+# containers that already exist — and they are profile-gated precisely so that
+# compose does not start them (one card, one holder). `up --no-start` bridges
+# that: compose creates them, the Router decides which one runs. Cheap no-op
+# when they already exist.
+create_gpu_containers() {
+    cd "${SCRIPT_DIR}"
+    # shellcheck disable=SC2046  # word splitting is how the flags are passed
+    docker compose -f "${DOCKER_COMPOSE_FILE}" \
+        $(gpu_profile_flags) \
+        up --no-start $(gpu_exclusive_services | tr '\n' ' ')
+}
+
 # Stop ai-paas services (except external ones like harbor)
+#
+# `stop`, not `down`: down REMOVES containers, and idphoto's pip packages live in
+# its container layer — so a down here would force a re-run of 2-install.sh on
+# every platform restart. Stopping keeps the containers (and their installs).
+#
+# The --profile flags are NOT optional: compose skips profile-gated services
+# entirely without them, so ai_comfyui / ai_idphoto would survive a "stop" and
+# keep holding the GPU.
 stop_services() {
     log_info "Stopping ai-paas services..."
     cd "${SCRIPT_DIR}"
-    docker compose -f "${DOCKER_COMPOSE_FILE}" down
+    # shellcheck disable=SC2046
+    docker compose -f "${DOCKER_COMPOSE_FILE}" $(gpu_profile_flags) stop
     log_info "Services stopped."
 }
 
@@ -61,6 +85,9 @@ start_services() {
     log_info "Starting ai-paas services..."
     cd "${SCRIPT_DIR}"
     docker compose -f "${DOCKER_COMPOSE_FILE}" up -d
+    # Router-scheduled GPU containers (comfyui, idphoto) must exist before the
+    # /gpu panel can start them; COMPOSE_PROFILES above only covers the vLLM.
+    create_gpu_containers
     log_info "Services started."
 }
 
@@ -71,29 +98,46 @@ restart_services() {
     start_services
 }
 
-# Stop ALL services including profile-gated ones (comfyui, cookies, etc.)
+# Stop ALL services including profile-gated ones (comfyui, idphoto, cookies, etc.)
+#
+# `stop`, not `down` — see stop_services() for why (idphoto's install lives in the
+# container layer). GPU profiles come from config/gpu-registry.json.
 stop_all_services() {
     log_info "Stopping ALL ai-paas services (including profile services)..."
     cd "${SCRIPT_DIR}"
+    # shellcheck disable=SC2046  # word splitting is how the flags are passed
     docker compose -f "${DOCKER_COMPOSE_FILE}" \
-        --profile comfyui \
+        $(gpu_profile_flags) \
         --profile cookies \
-        down
+        stop
     log_info "All services stopped."
 }
 
-# Start ALL services including profile-gated ones (comfyui, cookies, etc.)
+# Start ALL services that are safe to run together, and CREATE the rest.
+#
+# One GPU, one holder: the card-exclusive containers (every vllm-*, comfyui,
+# idphoto) must never be bulk-started — doing so is what the old
+# `--profile comfyui up -d` did, booting ComfyUI next to a vLLM and putting two
+# processes on one 24 GB card. They are created with --no-start instead, which
+# is all the Router needs: it start/stops existing containers via the Docker SDK
+# and enforces exclusivity itself. Pick one afterwards with:
+#     curl -X POST :4000/gpu/mode -d '{"mode":"llm"}'      # or idphoto/comfyui
+# or the /gpu panel in ai_webapp. COMPOSE_PROFILES in .env still decides which
+# vLLM (if any) comes up automatically.
 start_all_services() {
-    log_info "Starting ALL ai-paas services (including profile services)..."
-    cd "${SCRIPT_DIR}"
-    docker compose -f "${DOCKER_COMPOSE_FILE}" \
-        --profile comfyui \
-        --profile cookies \
-        up -d
+    log_info "Creating GPU-exclusive containers (not started — Router schedules them)..."
+    create_gpu_containers
+
+    log_info "Starting always-on ai-paas services..."
+    docker compose -f "${DOCKER_COMPOSE_FILE}" --profile cookies up -d
+
     log_info "All services started."
+    log_info "GPU is idle by default — choose a mode via the /gpu panel or:"
+    log_info "  curl -X POST http://localhost:4000/gpu/mode -H 'Content-Type: application/json' \\"
+    log_info "       -H \"Authorization: Bearer \${LITELLM_MASTER_KEY}\" -d '{\"mode\":\"llm\"}'"
 }
 
-# Restart ALL services including profile-gated ones (comfyui, cookies, etc.)
+# Restart ALL services including profile-gated ones (comfyui, idphoto, cookies, etc.)
 restart_all_services() {
     stop_all_services
     sleep 2

@@ -6,7 +6,7 @@
 >
 > **维护规则：** 任何 AI Agent 修改了本文档中列出的文件，必须在同一个 commit/会话中更新本文档对应章节。
 >
-> 最后更新：2026-08-18（idphoto 改为编号脚本 + 整目录挂载 + 发布 7860 WebUI，去掉设备切换）
+> 最后更新：2026-08-18（idphoto 纳入 Router GPU 调度；新增 `config/gpu-registry.json` 作为 GPU 容器唯一配置源；`0-entrypoint.sh` 让依赖只装一次；`stop_services` 改用 `docker compose stop` 保住容器层）
 >
 
 ---
@@ -59,6 +59,26 @@
 
 ## 逐文件参考
 
+### `config/gpu-registry.json` — GPU 容器唯一配置源
+
+所有「碰 GPU 的容器」只在这里登记一次。改容器、加容器、删容器,先看这个文件。
+
+消费方（4 个,全部从这里派生,不再各自硬编码）:
+- `services/router/app/config.py` → `GPU_CONTAINERS` / `VLLM_MODELS` / `GPU_SERVICES` / `DEFAULT_LLM_MODEL`
+- `services/router/app/api/routes/gpu.py` → 白名单 `MANAGED_CONTAINERS`、可选模式 `GPU_MODES`
+- `services/webapp/main.py` → `/gpu` 面板的互斥提示、启动耗时估算、显示名、日志容器列表
+- `scripts/core.sh` → `gpu_profile_flags()` / `gpu_exclusive_services()`（用 `jq` 读）
+
+关键字段:
+- `exclusive: true` — 独占整张卡,Router 启动它前会停掉所有其他 exclusive 容器
+- `compose_service` — docker-compose.yml 里的 service key,**和注册表 key 不同**
+  （如 key `qwen-32b` ↔ service `vllm-qwen`）
+- `profile` — compose profile 名;`null` 表示不门控（如 whisper 随平台常驻）
+
+**真正的 GPU 互斥在 `services/router/app/core/router_engine.py`,不在 profile。**
+profile 只是启动过滤器,作用是让 `docker compose up -d` 只*创建*容器不启动,
+把调度权交给 Router。
+
 ### `docker-compose.yml`
 
 **多模型 vLLM 架构（Docker Compose Profiles）**
@@ -90,9 +110,12 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
 
 **新模型添加步骤：**
 1. 在 `docker-compose.yml` 添加新 service（使用 `<<: *vllm-base`）
-2. 在 Router `config.py` 的 `VLLM_MODELS` 注册表添加条目
-3. 首次创建：`docker compose --profile llm-xxx up -d vllm-xxx`
+2. 在 `config/gpu-registry.json` 的 `containers` 添加条目（`type: "vllm"`, `exclusive: true`）
+3. 首次创建：`docker compose --profile llm-xxx up -d --no-start vllm-xxx`
 4. 之后 Router 可通过 Docker SDK start/stop 管理
+
+⚠️ 这两个文件必须同改：compose 读不了 JSON（`profiles:` 必须是字面 YAML），
+所以容器名 / profile / 模型路径在两边各存一份。**不要**再去改 `config.py`。
 
 **~~服务：`litellm-db` + `litellm`~~ — 已移除**
 - 已被 Router（Phase 4）完全替代
@@ -147,6 +170,11 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
 - 镜像：本地构建（`services/idphoto/`）— **故意做成空壳**
 - 端口：**`7860:7860`**（Gradio WebUI）。`deploy_api.py` 的 `8080` 不发布，仅内网可达
 - restart: `"no"`，profile 门控 — 默认不启动，不写进 `COMPOSE_PROFILES`
+- **GPU 模式：已注册进 `config/gpu-registry.json`（`exclusive: true`）。**
+  Router 把它当一等 GPU 服务调度：`POST /v1/gpu/mode {"mode":"idphoto"}` 会先停掉
+  vLLM/ComfyUI 再启动它；切回 `{"mode":"llm"}` 则停掉它。也可用 webapp `/gpu` 面板点
+- **依赖装一次即可。** `0-entrypoint.sh` 在容器启动时探测 pip 包：
+  装了 → 直接起 `3-run.sh`（WebUI）；没装 → 打印安装命令并 idle 挂住（不崩溃重启）
 - 用途：HivisionIDPhotos AI 证件照（抠图 → 换底色 → 标准尺寸裁切）
 - **安装方式：手动。** 镜像里只有 apt 系统库（opencv 的 `libGL` 依赖），
   零 pip 包、零应用代码。用户 `docker exec` 进去自己装。

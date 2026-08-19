@@ -1,0 +1,89 @@
+{
+  "_doc": [
+    "SINGLE SOURCE OF TRUTH for every container that touches the GPU.",
+    "",
+    "Consumers (all derive from this file — do not hardcode container names):",
+    "  services/router/app/config.py        -> VLLM_MODELS / GPU_SERVICES",
+    "  services/router/app/core/router_engine.py -> exclusivity switching",
+    "  services/router/app/api/routes/gpu.py     -> /gpu whitelist + modes",
+    "  services/webapp/main.py              -> /gpu panel, /logs, queue page",
+    "  scripts/service.sh                   -> compose --profile flags (via jq)",
+    "",
+    "To add a GPU container: add an entry here, AND add the matching service to",
+    "docker-compose.yml. Compose cannot read this file (profiles must be literal",
+    "in the YAML), so that one definition stays duplicated — nothing else does.",
+    "",
+    "Field reference:",
+    "  container       Docker container_name, must match docker-compose.yml exactly.",
+    "  compose_service Service key in docker-compose.yml (differs from the registry",
+    "                  id for vLLM: id 'qwen-32b' -> service 'vllm-qwen').",
+    "  display_name    Human label shown in the WebUI.",
+    "  type            'vllm'    = an OpenAI-compatible LLM server (has base_url,",
+    "                              model_path, aliases; Router routes chat to it).",
+    "                  'service' = anything else with a GPU reservation.",
+    "  profile         Compose profile that gates it, or null to start with a plain",
+    "                  `docker compose up -d`. Non-null means the container is NOT",
+    "                  auto-started: compose only creates it, and the Router owns",
+    "                  start/stop. This is what keeps two GPU hogs off one card —",
+    "                  the profile is not a lock, it just keeps compose from",
+    "                  starting something the Router is supposed to schedule.",
+    "  exclusive       true  = needs the whole card; starting it stops every other",
+    "                          exclusive entry (24 GB RTX 3090, no MIG).",
+    "                  false = small enough to coexist (e.g. Whisper at ~4 GB).",
+    "  startup_sec     Rough cold-start estimate, used for WebUI progress hints."
+  ],
+  "containers": {
+    "qwen-32b": {
+      "container": "ai_vllm_qwen",
+      "compose_service": "vllm-qwen",
+      "display_name": "Qwen 2.5 32B AWQ",
+      "type": "vllm",
+      "profile": "llm-qwen",
+      "exclusive": true,
+      "startup_sec": 120,
+      "base_url": "http://ai_vllm_qwen:8000",
+      "model_path": "/models/qwen2.5-32b-instruct-awq",
+      "aliases": ["qwen"]
+    },
+    "gemma-4-26b": {
+      "container": "ai_vllm_gemma",
+      "compose_service": "vllm-gemma",
+      "display_name": "Gemma 4 26B A4B (MoE)",
+      "type": "vllm",
+      "profile": "llm-gemma",
+      "exclusive": true,
+      "startup_sec": 120,
+      "base_url": "http://ai_vllm_gemma:8000",
+      "model_path": "/models/gemma-4-26B-A4B-awq",
+      "aliases": ["gemma"]
+    },
+    "comfyui": {
+      "container": "ai_comfyui",
+      "compose_service": "comfyui",
+      "display_name": "ComfyUI",
+      "type": "service",
+      "profile": "comfyui",
+      "exclusive": true,
+      "startup_sec": 60
+    },
+    "idphoto": {
+      "container": "ai_idphoto",
+      "compose_service": "idphoto",
+      "display_name": "HivisionIDPhotos",
+      "type": "service",
+      "profile": "idphoto",
+      "exclusive": true,
+      "startup_sec": 20
+    },
+    "whisper": {
+      "container": "ai_whisper",
+      "compose_service": "whisper",
+      "display_name": "Whisper STT",
+      "type": "service",
+      "profile": null,
+      "exclusive": false,
+      "startup_sec": 15
+    }
+  },
+  "default_llm_model": "qwen-32b"
+}

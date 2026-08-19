@@ -22,12 +22,16 @@
 """Router engine — GPU mode management and multi-model coordination.
 
 GPU modes:
-- "llm": One vLLM model running (qwen-32b, gemma-4-26b, etc.), ComfyUI stopped
-- "comfyui": ComfyUI running, all vLLM stopped
+- "llm": One vLLM model running, every exclusive GPU service stopped
+- <service_id>: One exclusive GPU service running (e.g. "comfyui", "idphoto"),
+  all vLLM stopped
 - "idle": Nothing GPU-intensive running
 
-Multi-model: Only one vLLM instance runs at a time (VRAM exclusive).
-Router detects active model by checking which ai_vllm_* container is running.
+The card is a single 24 GB RTX 3090 with no MIG, so "exclusive" is literal:
+exactly one of {a vLLM instance, a GPU service} may hold it at a time.
+
+Both groups come from config/gpu-registry.json via settings — adding a GPU
+service is a registry edit, not a code edit.
 """
 
 import os
@@ -46,11 +50,18 @@ def _all_vllm_containers() -> list[str]:
     return [cfg["container"] for cfg in settings.VLLM_MODELS.values()]
 
 
+def _all_gpu_service_containers() -> list[str]:
+    """Return all registered exclusive non-LLM GPU service container names."""
+    return [cfg["container"] for cfg in settings.GPU_SERVICES.values()]
+
+
 def detect_gpu_mode() -> str:
-    """Detect current GPU mode from container status."""
+    """Detect current GPU mode from container status.
+
+    Returns "llm", a GPU_SERVICES key ("comfyui", "idphoto", ...), or "idle".
+    """
     vllm_containers = _all_vllm_containers()
-    all_containers = vllm_containers + ["ai_comfyui"]
-    statuses = get_container_status(all_containers)
+    statuses = get_container_status(vllm_containers + _all_gpu_service_containers())
     status_map = {s["name"]: s["status"] for s in statuses}
 
     # Check if any vLLM is running
@@ -58,8 +69,9 @@ def detect_gpu_mode() -> str:
         if status_map.get(name) == "running":
             return "llm"
 
-    if status_map.get("ai_comfyui") == "running":
-        return "comfyui"
+    for service_id, cfg in settings.GPU_SERVICES.items():
+        if status_map.get(cfg["container"]) == "running":
+            return service_id
 
     return "idle"
 
@@ -106,8 +118,49 @@ def _stop_all_vllm() -> list[str]:
     return actions
 
 
+def _stop_all_gpu_services(skip: str | None = None) -> list[str]:
+    """Stop every running exclusive GPU service. `skip` leaves one service alone."""
+    actions = []
+    targets = {
+        sid: cfg["container"]
+        for sid, cfg in settings.GPU_SERVICES.items()
+        if sid != skip
+    }
+    statuses = get_container_status(list(targets.values()))
+    running = {s["name"] for s in statuses if s["status"] == "running"}
+
+    for service_id, container in targets.items():
+        if container in running:
+            ok = stop_container(container)
+            actions.append(f"stop_{service_id}={'ok' if ok else 'failed'}")
+
+    return actions
+
+
+def _creation_error(cfg: dict) -> str | None:
+    """Return an actionable error if cfg's container was never created, else None.
+
+    Every exclusive GPU container is profile-gated: compose creates it, the Router
+    only starts/stops it. Checking this BEFORE freeing the card matters — otherwise
+    we stop the current holder for a target that cannot start, leaving the GPU idle
+    and both services down.
+    """
+    container = cfg["container"]
+    statuses = get_container_status([container])
+    if (statuses[0]["status"] if statuses else "not_found") != "not_found":
+        return None
+
+    service = cfg["compose_service"]
+    profile = cfg.get("profile")
+    hint = (
+        f"docker compose --profile {profile} up -d --no-start {service}"
+        if profile else f"docker compose up -d {service}"
+    )
+    return f"Container '{container}' does not exist yet. Create it first: {hint}"
+
+
 def switch_to_llm_model(model_id: str) -> dict:
-    """Switch to a specific LLM model. Stops ComfyUI and any other vLLM first."""
+    """Switch to a specific LLM model. Stops GPU services and any other vLLM first."""
     if model_id not in settings.VLLM_MODELS:
         return {"error": f"Unknown model: {model_id}. Available: {list(settings.VLLM_MODELS.keys())}"}
 
@@ -118,13 +171,14 @@ def switch_to_llm_model(model_id: str) -> dict:
     if not os.path.isdir(model_path):
         return {"error": f"Model weights not found at '{model_path}'. Download the model first."}
 
+    err = _creation_error(target)
+    if err:
+        return {"error": err}
+
     result = {"mode": "llm", "model": model_id, "actions": []}
 
-    # Stop ComfyUI if running (free VRAM)
-    comfyui_statuses = get_container_status(["ai_comfyui"])
-    if comfyui_statuses and comfyui_statuses[0]["status"] == "running":
-        ok = stop_container("ai_comfyui")
-        result["actions"].append(f"stop_comfyui={'ok' if ok else 'failed'}")
+    # Stop every exclusive GPU service (ComfyUI, idphoto, ...) to free VRAM
+    result["actions"].extend(_stop_all_gpu_services())
 
     # Stop any running vLLM container (could be a different model)
     result["actions"].extend(_stop_all_vllm())
@@ -148,18 +202,46 @@ def switch_to_llm_mode() -> dict:
     return switch_to_llm_model(settings.DEFAULT_LLM_MODEL)
 
 
-def switch_to_comfyui_mode() -> dict:
-    """Ensure ComfyUI is running, all vLLM stopped."""
-    result = {"mode": "comfyui", "actions": []}
+def switch_to_gpu_service(service_id: str) -> dict:
+    """Switch to an exclusive non-LLM GPU service (ComfyUI, idphoto, ...).
 
-    # Stop all vLLM containers first (frees VRAM)
+    Stops every vLLM instance and every other GPU service, then starts the target.
+    """
+    if service_id not in settings.GPU_SERVICES:
+        return {
+            "error": f"Unknown GPU service: {service_id}. "
+                     f"Available: {list(settings.GPU_SERVICES.keys())}"
+        }
+
+    target = settings.GPU_SERVICES[service_id]
+    container = target["container"]
+
+    err = _creation_error(target)
+    if err:
+        return {"error": err}
+
+    result = {"mode": service_id, "actions": []}
+
+    # Free the card: stop all vLLM, then every other exclusive GPU service
     result["actions"].extend(_stop_all_vllm())
+    result["actions"].extend(_stop_all_gpu_services(skip=service_id))
 
-    # Start ComfyUI
-    statuses = get_container_status(["ai_comfyui"])
-    if statuses and statuses[0]["status"] != "running":
-        ok = start_container("ai_comfyui")
-        result["actions"].append(f"start_comfyui={'ok' if ok else 'failed'}")
+    statuses = get_container_status([container])
+    current = statuses[0]["status"] if statuses else "not_found"
+    if current == "running":
+        result["actions"].append("already_running")
+    else:
+        ok = start_container(container)
+        result["actions"].append(f"start_{service_id}={'ok' if ok else 'failed'}")
 
     result["gpus"] = get_gpu_info()
     return result
+
+
+def switch_to_comfyui_mode() -> dict:
+    """Ensure ComfyUI is running, all vLLM stopped.
+
+    Kept as a named alias so existing callers (workers/tasks.py, the webapp's
+    one-click ComfyUI button) do not need to know about the generic registry.
+    """
+    return switch_to_gpu_service("comfyui")

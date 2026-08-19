@@ -32,13 +32,15 @@ bash services/idphoto/1-download-weights.sh
 
 214MB + 105MB,aria2c 16 线程。脚本会校验字节数 —— 必须校验,因为下载重定向失败会写一个 HTML 错误页进去,文件名和扩展名都对,直到 onnxruntime 报个看不懂的错才暴露。
 
-### 3. 起容器
+### 3. 建容器
 
 ```bash
 docker compose --profile idphoto up -d --build idphoto
 ```
 
-### 4. 装依赖(容器内)
+容器起来后**不会**自动跑 WebUI —— `0-entrypoint.sh` 探测到 pip 包还没装,会打印提示然后 `sleep infinity` 挂着等你装。
+
+### 4. 装依赖(容器内,只做这一次)
 
 ```bash
 docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
@@ -46,15 +48,41 @@ docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
 
 结尾会自己验证 —— `onnxruntime.get_device()` 必须是 `GPU`,不是就 exit 1。
 
-### 5. 跑
+### 5. 重启,从此交给平台
 
 ```bash
-docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh
+docker restart ai_idphoto
 ```
+
+这次 `0-entrypoint.sh` 探测到依赖齐了,直接 `exec` 到 `3-run.sh` 起 WebUI。
 
 浏览器打开 **http://192.168.0.19:7860**
 
-⚠️ 跑之前把 `ai_vllm_*` 全停掉。birefnet-v1-lite 要约 16GB 显存,vLLM 占 22GB,这张 24GB 的卡塞不下两个。
+**装依赖只需要这一次。** 往后开机、Router 调度、`docker restart` 都会自动起 WebUI,不用再手工跑 `2-install.sh` 或 `3-run.sh`。
+
+---
+
+## GPU 归 Router 调度
+
+⚠️ birefnet-v1-lite 要约 16GB 显存,vLLM 占 22GB,这张 24GB 的卡塞不下两个。
+
+这个互斥**不用你自己记** —— `ai_idphoto` 已经注册进 `config/gpu-registry.json`(`exclusive: true`),Router 会在启动它之前自动把 vLLM 和 ComfyUI 停掉:
+
+```bash
+# 切给 idphoto(会停掉当前占卡的服务)
+curl -X POST http://192.168.0.19:4000/v1/gpu/mode \
+  -H "Authorization: Bearer sk-1234" -H "Content-Type: application/json" \
+  -d '{"mode":"idphoto"}'
+
+# 切回 LLM(会停掉 idphoto)
+curl -X POST http://192.168.0.19:4000/v1/gpu/mode \
+  -H "Authorization: Bearer sk-1234" -H "Content-Type: application/json" \
+  -d '{"mode":"llm"}'
+```
+
+或者直接用 ai_webapp 的 `/gpu` 面板点。
+
+compose 里那个 `profiles: ["idphoto"]` **不是** GPU 锁,它只是启动过滤器 —— 作用是让 `docker compose up -d` 只**创建**容器而不启动它,把「什么时候启动」的决定权交给 Router。真正的互斥在 `services/router/app/core/router_engine.py`。
 
 ---
 
@@ -64,9 +92,19 @@ docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh
 docker rm -f ai_idphoto
 docker compose --profile idphoto up -d idphoto
 docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
+docker restart ai_idphoto
 ```
 
 pip 装的东西在容器层里,删容器就没了。clone、权重、pip 缓存都在宿主机 bind mount 上,不受影响。第二次装走 pip 缓存,很快。
+
+注意区分什么会丢容器层:
+
+| 操作 | 依赖 |
+|---|---|
+| `docker restart` / Router start-stop / `paas-controller.sh stop`+`start` | ✅ 保留 |
+| `docker rm` / `--build` / `--force-recreate` / `docker compose down` | ❌ 丢,要重装 |
+
+所以平台正常关机重启**不用**重装 —— `stop_services()` 用的是 `docker compose stop` 而不是 `down`,就是为了这个。
 
 ---
 
@@ -94,9 +132,10 @@ onnxruntime-gpu ≤1.18 链 `libcudnn.so.8`,≥1.19 链 `libcudnn.so.9`。我们
 |---|---|
 | `Dockerfile` | 空壳镜像:CUDA 12.6.3 + cuDNN 9 + python3 + 几个 libGL |
 | `requirements.txt` | 我们修正过的依赖。**不是**上游那份 |
+| `0-entrypoint.sh` | 容器启动时 Docker 自动跑,**你不会手工调它**。探测依赖:装了就起 WebUI,没装就打印提示挂住 |
 | `1-download-weights.sh` | 宿主机跑,下 2 个 onnx + 校验字节数 |
-| `2-install.sh` | 容器内跑,装依赖 + 自验证。幂等 |
-| `3-run.sh` | 容器内跑,起 WebUI |
+| `2-install.sh` | 容器内跑,装依赖 + 自验证。幂等。**只在安装阶段跑一次** |
+| `3-run.sh` | 起 WebUI。由 `0-entrypoint.sh` 调用,一般不用手工跑 |
 
 `services/idphoto/` 整个目录挂到容器 `/opt/idphoto:ro`。
 
