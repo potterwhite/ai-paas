@@ -263,6 +263,7 @@ services:
       - LITELLM_BASE_URL=http://ai_router:4000/v1
       - LITELLM_API_KEY=${LITELLM_MASTER_KEY:-sk-1234}
       - WHISPER_BASE_URL=http://ai_whisper:8000/v1
+      - IDPHOTO_BASE_URL=http://ai_idphoto:7860   # reverse-proxied at /idphoto/ui; 7860 is not published on the host
       - LLM_MODEL=qwen
       - WHISPER_MODEL=Systran/faster-whisper-large-v3
       - MODELS_ROOT=/models                   # path inside container where model weights live
@@ -357,7 +358,7 @@ services:
   #       2. docker compose --profile idphoto up -d --build idphoto
   #       3. docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
   #       4. docker restart ai_idphoto      -> 0-entrypoint.sh runs 3-run.sh
-  #       5. open http://<host>:7860
+  #       5. open http://<host>:8888/idphoto
   #
   #     After that, step 2 is done for good: pip packages live in the
   #     container's writable layer, so 0-entrypoint.sh takes every later
@@ -386,10 +387,14 @@ services:
     # Same pattern as comfyui above. Keep it out of COMPOSE_PROFILES.
     profiles: ["idphoto"]
     restart: "no"              # Router is the only thing that starts this
-    ports:
-      # 7860 = gradio's default. 8080/8443 belong to Harbor's nginx on this
-      # box, 8081 to ai_rag, 8888 to ai_webapp.
-      - "7860:7860"
+    # No `ports:` — 7860 is deliberately NOT published on the host. Every WebUI
+    # on this box is reached through ai_webapp on :8888, which reverse-proxies
+    # this container at /idphoto/ui (see services/webapp/main.py). 7860 stays
+    # reachable as ai_idphoto:7860 inside ai_paas_network, which is all the
+    # proxy needs.
+    #
+    # Changing this line forces `--force-recreate`, and pip packages live in the
+    # container's writable layer — so re-run step 2 above afterwards.
     volumes:
       # src + pip-cache live under MODELS_PATH (/Development, 1 TB) — keeps the
       # ~330 MB of weights and the pip cache off the 196 GB system disk.
@@ -402,6 +407,13 @@ services:
       - ./services/idphoto:/opt/idphoto:ro                           # our scripts + requirements.txt
     environment:
       - TZ=Asia/Hong_Kong
+      # Served behind ai_webapp's reverse proxy, not at the domain root, so
+      # gradio has to know its own public subpath: it prefixes every asset and
+      # file URL it hands the browser with this. app.py's --root_path defaults
+      # to None, and gradio's launch() falls back to GRADIO_ROOT_PATH in that
+      # case — so this needs no change to 3-run.sh.
+      # Must match IDPHOTO_PREFIX in services/webapp/main.py.
+      - GRADIO_ROOT_PATH=/idphoto/ui
       # Domestic PyPI mirror — onnxruntime-gpu alone is ~200 MB and the
       # upstream index is slow from here. Env var, so no rebuild needed.
       - PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple

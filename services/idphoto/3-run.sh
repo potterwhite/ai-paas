@@ -4,7 +4,11 @@
 #
 #     docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh
 #
-# Then open http://<host>:7860
+# Then open http://<host>:8888/idphoto
+#
+# Not :7860 — that port is not published on the host. ai_webapp reverse-proxies
+# this server at /idphoto/ui, and GRADIO_ROOT_PATH (set in docker-compose.yml)
+# tells gradio to build its asset URLs under that prefix.
 #
 # app.py is the Gradio WebUI. deploy_api.py is a separate, UI-less FastAPI
 # server (7 POST endpoints, no pages) — that one is for the ai_webapp

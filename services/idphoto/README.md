@@ -56,7 +56,10 @@ docker restart ai_idphoto
 
 这次 `0-entrypoint.sh` 探测到依赖齐了,直接 `exec` 到 `3-run.sh` 起 WebUI。
 
-浏览器打开 **http://192.168.0.19:7860**
+浏览器打开 **http://192.168.0.19:8888/idphoto**
+
+7860 **不对外发布**。ai_webapp 在 `/idphoto/ui` 反代这个容器，所有 WebUI 统一从 8888 进 ——
+详见下面「入口为什么在 8888」。
 
 **装依赖只需要这一次。** 往后开机、Router 调度、`docker restart` 都会自动起 WebUI,不用再手工跑 `2-install.sh` 或 `3-run.sh`。
 
@@ -147,12 +150,41 @@ onnxruntime-gpu ≤1.18 链 `libcudnn.so.8`,≥1.19 链 `libcudnn.so.9`。我们
 
 | | 文件 | 端口 | 有页面 |
 |---|---|---|---|
-| WebUI | `app.py` | 7860(已发布) | ✅ Gradio |
+| WebUI | `app.py` | 7860(仅内网) | ✅ Gradio |
 | API | `deploy_api.py` | 8080(仅内网) | ❌ 7 个 POST 接口 |
 
 `3-run.sh` 跑的是 WebUI。`deploy_api.py` 没有任何页面,浏览器打开是空的 —— 它是留给以后 ai_webapp 集成用的,走内部网络 `http://ai_idphoto:8080`。
 
-7860 这个端口:8080 和 8443 是 Harbor 的 nginx,8081 是 ai_rag,8888 是 ai_webapp。
+---
+
+## 入口为什么在 8888
+
+这个容器**两个端口都不对外发布**。浏览器访问的是 `http://192.168.0.19:8888/idphoto`,
+由 ai_webapp 反代过来:
+
+```
+浏览器 → ai_webapp:8888 /idphoto        → 落地页(容器状态 + 一键切 GPU + iframe)
+       → ai_webapp:8888 /idphoto/ui/*   → 反代 → ai_idphoto:7860/*
+```
+
+跑的是**上游原版 Gradio,一行没改**,所以功能不会因为反代而缺失。
+
+三个咬合的点,改任何一个都要一起改:
+
+1. **`GRADIO_ROOT_PATH=/idphoto/ui`**(docker-compose.yml)— 告诉 Gradio 自己的公开子路径,
+   它据此给浏览器发资源 URL。必须与 `main.py` 的 `IDPHOTO_PREFIX` 一致。
+2. **代理必须转发 `x-forwarded-host`**(`services/webapp/main.py`)— Gradio 的
+   `get_root_url()` 靠这个头拼公开地址;没有它会回落到请求 URL,也就是内网的
+   `http://ai_idphoto:7860/...`,浏览器解析不了,页面能开但什么都加载不出来。
+3. **SSE 读超时必须是 `None`** — Gradio 4.x 用 SSE(`/queue/data`、`/heartbeat`)回传进度,
+   连接和标签页同寿。任何有限的 read timeout 都会把长推理掐断在中途。
+
+Gradio 4.44 **不用 WebSocket**,所以普通流式 HTTP 代理就够了。
+
+⚠️ 摄像头输入用不了 —— `getUserMedia` 要求 secure context,纯 HTTP 的局域网地址不满足。
+这跟反代无关,直连 7860 时也一样。
+
+⚠️ 增删 `ports:` 会强制 `--force-recreate`,而 pip 装在容器可写层 → 之后要重跑 `2-install.sh`。
 
 ---
 

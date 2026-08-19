@@ -37,7 +37,7 @@
 │   │   ├── requirements.txt                ←     我们修正过的依赖（**不是**上游那份）
 │   │   ├── 1-download-weights.sh           ←     宿主机跑：aria2c 下 2 个 onnx + 校验字节数
 │   │   ├── 2-install.sh                    ←     容器内跑：装依赖 + 断言 get_device()==GPU
-│   │   ├── 3-run.sh                        ←     容器内跑：起 WebUI（app.py，:7860）
+│   │   ├── 3-run.sh                        ←     容器内跑：起 WebUI（app.py，内网 :7860）
 │   │   └── README.md                       ←     5 步安装 + 两个静默陷阱
 │   └── comfyui/                            ←   ComfyUI 部署脚本 + 工作流
 ├── data/                                   ← 运行时数据
@@ -168,7 +168,8 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
 
 **服务：`idphoto`（容器：`ai_idphoto`）— profile: `idphoto`**
 - 镜像：本地构建（`services/idphoto/`）— **故意做成空壳**
-- 端口：**`7860:7860`**（Gradio WebUI）。`deploy_api.py` 的 `8080` 不发布，仅内网可达
+- 端口：**都不发布**。Gradio 的 `7860` 和 `deploy_api.py` 的 `8080` 仅内网可达；
+  浏览器入口是 ai_webapp 的 **`:8888/idphoto`**（反代到 `/idphoto/ui`）
 - restart: `"no"`，profile 门控 — 默认不启动，不写进 `COMPOSE_PROFILES`
 - **GPU 模式：已注册进 `config/gpu-registry.json`（`exclusive: true`）。**
   Router 把它当一等 GPU 服务调度：`POST /v1/gpu/mode {"mode":"idphoto"}` 会先停掉
@@ -194,7 +195,7 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
   bash services/idphoto/1-download-weights.sh                    # 宿主机
   docker compose --profile idphoto up -d --build idphoto
   docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh      # 容器内
-  docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh          # 容器内 → :7860
+  docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh          # 容器内 → 经 8888 反代访问
   ```
   重来：`docker rm -f ai_idphoto` 后回到第 2 条。
 - ⚠️ **上游 clone 永不修改** — `${MODELS_PATH}/idphoto/src` 保持 upstream 干净状态。
@@ -212,8 +213,12 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
     import `beauty_tools` → `grind_skin`，后者在模块级构建 `gr.Blocks`。
 - ⚠️ **必须先停所有 `ai_vllm_*`** — birefnet-v1-lite 需 ~16 GB 显存，
   vLLM 占 24 GB 中的 ~22 GB，单卡装不下。
-- WebUI 与 API 是两个入口：`app.py`（Gradio，:7860，有页面）vs `deploy_api.py`
+- WebUI 与 API 是两个入口：`app.py`（Gradio，容器内 :7860，有页面）vs `deploy_api.py`
   （FastAPI，:8080，7 个 POST 接口、**无页面**，留给 ai_webapp 集成）。
+- ⚠️ **WebUI 走 ai_webapp 反代，不发布 7860**。三处咬合，改一个要一起改：
+  `GRADIO_ROOT_PATH=/idphoto/ui`（compose）≡ `IDPHOTO_PREFIX`（`services/webapp/main.py`），
+  且代理必须转发 `x-forwarded-host`（否则 Gradio 把内网地址写进前端 config，页面空白），
+  SSE 读超时必须为 `None`（否则长推理被掐断）。细节见 `services/idphoto/README.md`。
 - 抠图模型画质排序：`birefnet-v1-lite`（214MB，最好，唯一支持 GPU）> `rmbg-1.4`（176MB）> `modnet`（24.7MB）
   当前只下载了 `birefnet-v1-lite` + `retinaface-resnet50`。
 
@@ -282,8 +287,10 @@ GET  http://192.168.0.19:8081/v1/health          → 健康检查
 
 **WebUI（当前入口）**
 ```
-http://192.168.0.19:7860        → Gradio 界面（app.py，3-run.sh 启动）
+http://192.168.0.19:8888/idphoto        → 落地页（状态 + 一键切 GPU + iframe 内嵌 Gradio）
+http://192.168.0.19:8888/idphoto/ui/    → 反代到 ai_idphoto:7860（上游原版 Gradio）
 ```
+7860 不对外发布。
 
 **API（`deploy_api.py`，容器内 :8080，不对外发布，留给 ai_webapp 集成）**
 ```
