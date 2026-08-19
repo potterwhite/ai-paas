@@ -38,8 +38,9 @@ from typing import Optional
 import httpx
 import docker
 from fastapi import FastAPI, UploadFile, File, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, Response, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 # ── Config from environment ──────────────────────────────────────────────────
 LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://ai_litellm:4000/v1")
@@ -52,6 +53,14 @@ WHISPER_MODEL    = os.getenv("WHISPER_MODEL",      "Systran/faster-whisper-large
 RAG_BASE_URL = os.getenv("RAG_BASE_URL", "http://ai_rag:8081")
 RAG_API_KEY = os.getenv("RAG_API_KEY", "sk-rag-default")
 
+# ── HivisionIDPhotos reverse proxy ───────────────────────────────────────────
+# ai_idphoto does not publish 7860 on the host: every WebUI on this box is
+# reached through this app on :8888. IDPHOTO_PREFIX must match the container's
+# GRADIO_ROOT_PATH in docker-compose.yml, or gradio will hand the browser asset
+# URLs that do not route back here.
+IDPHOTO_BASE_URL = os.getenv("IDPHOTO_BASE_URL", "http://ai_idphoto:7860")
+IDPHOTO_PREFIX = "/idphoto/ui"
+
 # ── yt-dlp cookie support ────────────────────────────────────────────────────
 YTDLP_COOKIES_PATH = os.getenv("YTDLP_COOKIES_PATH", "")
 
@@ -62,7 +71,7 @@ def _ytdlp_base_cmd() -> list[str]:
     If YTDLP_COOKIES_PATH is set and the file exists, appends --cookies.
     Otherwise returns plain ["yt-dlp"] for backward compatibility.
     """
-    cmd = ["yt-dlp"]
+    cmd = ["yt-dlp", "--js-runtimes", "node", "--remote-components", "ejs:github"]
     if YTDLP_COOKIES_PATH and Path(YTDLP_COOKIES_PATH).is_file():
         cmd.extend(["--cookies", YTDLP_COOKIES_PATH])
     return cmd
@@ -82,8 +91,53 @@ HF_TOKEN         = os.getenv("HF_TOKEN", "")                    # optional; set 
 COMFYUI_MODELS_HDD = os.getenv("COMFYUI_MODELS_HDD", "")        # host path for large models (HDD)
 COMFYUI_WORKFLOWS_DIR = os.getenv("COMFYUI_WORKFLOWS_DIR", "/comfyui_workflows")  # built-in workflow JSONs
 
+# ── GPU registry ─────────────────────────────────────────────────────────────
+# config/gpu-registry.json is the single source of truth for which containers
+# touch the GPU, which of them are card-exclusive, and how long they take to
+# start. Router and scripts/service.sh read the same file — see its "_doc"
+# block. Nothing below hardcodes a container name.
+GPU_REGISTRY_PATH = os.getenv("GPU_REGISTRY_PATH", "/config/gpu-registry.json")
+
+
+def _load_gpu_registry(path: str) -> dict:
+    """Read the GPU registry, or fail loudly.
+
+    No built-in fallback on purpose: a stale hardcoded copy of the container
+    list is exactly what this registry exists to eliminate, and a wrong name
+    would let the panel offer to start something that then fights vLLM for VRAM.
+    """
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"GPU registry not found at '{path}'. Mount config/gpu-registry.json "
+            "into this container (see docker-compose.yml) or set GPU_REGISTRY_PATH."
+        ) from None
+    # Keys starting with "_" are documentation blocks, not container entries.
+    return {k: v for k, v in raw["containers"].items() if not k.startswith("_")}
+
+
+GPU_REGISTRY = _load_gpu_registry(GPU_REGISTRY_PATH)
+
 # Containers the GPU panel is allowed to start/stop (whitelist — safety)
-GPU_MANAGED_CONTAINERS = ["ai_vllm_qwen", "ai_vllm_gemma", "ai_whisper", "ai_comfyui"]
+GPU_MANAGED_CONTAINERS = [cfg["container"] for cfg in GPU_REGISTRY.values()]
+
+# Containers that need the whole card. Starting any one of these stops the rest,
+# because a 24 GB RTX 3090 with no MIG fits exactly one of them.
+GPU_EXCLUSIVE_CONTAINERS = [
+    cfg["container"] for cfg in GPU_REGISTRY.values() if cfg["exclusive"]
+]
+
+# container name → rough cold-start seconds, for the switching banner
+GPU_STARTUP_SEC = {
+    cfg["container"]: cfg.get("startup_sec", 30) for cfg in GPU_REGISTRY.values()
+}
+
+# container name → human label
+GPU_DISPLAY_NAMES = {
+    cfg["container"]: cfg.get("display_name", cfg["container"])
+    for cfg in GPU_REGISTRY.values()
+}
 
 # ── In-memory download task registry ─────────────────────────────────────────
 # { task_id: {"status": ..., "log": [...], "repo_id": str, "local_dir": str, "progress": {...}} }
@@ -261,6 +315,7 @@ def page(title: str, active: str, body: str) -> HTMLResponse:
         ("/download",  "📥", "下载"),
         ("/translate", "🌐", "翻译"),
         ("/comfyui",   "🎨", "生成"),
+        ("/idphoto",   "🪪", "证件照"),
         ("/gpu",       "⚡", "GPU"),
         ("/models",    "📦", "模型"),
         ("/queue",     "📋", "队列"),
@@ -998,6 +1053,11 @@ async def home():
     <div class="title">数字人</div>
     <div class="desc">图像驱动数字人（ComfyUI）</div>
   </a>
+  <a class="service-card" href="/idphoto">
+    <div class="icon">🪪</div>
+    <div class="title">证件照</div>
+    <div class="desc">人像照片 → 标准证件照（抠图换底 · 排版）</div>
+  </a>
   <a class="service-card" href="/gpu">
     <div class="icon">⚡</div>
     <div class="title">GPU 控制</div>
@@ -1734,6 +1794,13 @@ async def download_page():
 
   <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">📥 开始下载</button>
 
+  <!-- yt-dlp version info -->
+  <div id="dl-version-info" style="margin-top:12px;padding:8px 12px;background:var(--surface);border-radius:6px;font-size:12px;display:flex;align-items:center;gap:8px">
+    <span id="dl-version-text" style="color:var(--text-dim)">yt-dlp: 检查中...</span>
+    <button id="dl-update-btn" class="btn btn-ghost" style="display:none;font-size:11px;padding:2px 8px" onclick="updateYtdlp()">🔄 更新</button>
+    <span id="dl-update-status" style="font-size:11px"></span>
+  </div>
+
   <div id="dl-progress" style="display:none;margin-top:16px">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
       <span class="ck-spin" style="font-size:18px">⟳</span>
@@ -1760,6 +1827,55 @@ async def download_page():
 </style>
 
 <script>
+// ── yt-dlp version check ────────────────────────────────────────────────────
+async function checkYtdlpVersion() {
+  try {
+    const r = await fetch('/api/download/version');
+    const d = await r.json();
+    const textEl = document.getElementById('dl-version-text');
+    const updateBtn = document.getElementById('dl-update-btn');
+    if (d.current === 'not installed') {
+      textEl.textContent = 'yt-dlp: 未安装';
+      textEl.style.color = '#dc2626';
+    } else {
+      textEl.textContent = `yt-dlp: ${d.current}`;
+      if (d.update_available) {
+        textEl.textContent += ` (最新: ${d.latest})`;
+        textEl.style.color = '#f59e0b';
+        updateBtn.style.display = '';
+      } else {
+        textEl.style.color = 'var(--text-dim)';
+      }
+    }
+  } catch(e) {}
+}
+async function updateYtdlp() {
+  const btn = document.getElementById('dl-update-btn');
+  const status = document.getElementById('dl-update-status');
+  btn.disabled = true;
+  btn.textContent = '⏳ 更新中...';
+  status.textContent = '';
+  try {
+    const r = await fetch('/api/download/update', {method: 'POST'});
+    const d = await r.json();
+    if (d.success) {
+      status.textContent = `✅ 已更新到 ${d.version}`;
+      status.style.color = '#22c55e';
+      await checkYtdlpVersion();
+    } else {
+      status.textContent = `❌ ${d.error || '更新失败'}`;
+      status.style.color = '#dc2626';
+    }
+  } catch(e) {
+    status.textContent = `❌ ${e.message}`;
+    status.style.color = '#dc2626';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 更新';
+  }
+}
+checkYtdlpVersion();
+
 // ── Section collapse/expand ──────────────────────────────────────────────────
 const _sectionOpen = {video: true, audio: true, subs: true};
 function toggleSection(s) {
@@ -2102,6 +2218,57 @@ async function startDownload() {
 </script>
 """
     return page("下载", "/download", body)
+
+
+@app.get("/api/download/version")
+async def api_download_version():
+    """Get yt-dlp version and check if update is available."""
+    import subprocess
+    try:
+        current = subprocess.check_output(["yt-dlp", "--version"], text=True).strip()
+    except Exception:
+        current = "not installed"
+
+    # Check latest version from PyPI
+    latest = None
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get("https://pypi.org/pypi/yt-dlp/json")
+            if r.status_code == 200:
+                latest = r.json().get("info", {}).get("version")
+    except Exception:
+        pass
+
+    # Normalize version strings (remove leading zeros: 2026.03.17 -> 2026.3.17)
+    def normalize_ver(v):
+        if not v:
+            return v
+        parts = v.split(".")
+        return ".".join(str(int(p)) for p in parts)
+
+    return JSONResponse({
+        "current": current,
+        "latest": latest,
+        "update_available": latest is not None and normalize_ver(current) != normalize_ver(latest),
+    })
+
+
+@app.post("/api/download/update")
+async def api_download_update():
+    """Update yt-dlp to latest version."""
+    import subprocess
+    try:
+        proc = subprocess.run(
+            ["pip", "install", "--no-cache-dir", "--upgrade", "yt-dlp"],
+            capture_output=True, text=True, timeout=60
+        )
+        if proc.returncode == 0:
+            new_version = subprocess.check_output(["yt-dlp", "--version"], text=True).strip()
+            return JSONResponse({"success": True, "version": new_version})
+        return JSONResponse({"success": False, "error": proc.stderr[:200]})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)})
 
 
 @app.post("/api/download/probe")
@@ -2882,10 +3049,329 @@ loadWorkflowBrowser();
     return page("视觉生成", "/comfyui", body)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# /idphoto — HivisionIDPhotos, reverse-proxied
+# ──────────────────────────────────────────────────────────────────────────────
+# ai_idphoto runs upstream gradio untouched; nothing here reimplements its UI.
+# This block is a transport: /idphoto is our shell page, /idphoto/ui/* forwards
+# verbatim to the container. Consequence — every gradio feature works because it
+# IS gradio, and upstream can be updated without touching this file.
+#
+# gradio 4.44 needs no WebSocket support: progress and results come back over
+# SSE (/queue/data, /heartbeat/{session_hash}), which is plain streaming HTTP.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# RFC 7230 §6.1: these describe a single connection hop and must not be relayed.
+# content-length is dropped separately because we re-stream the body, and
+# starlette recomputes framing (chunked) for a StreamingResponse.
+_HOP_BY_HOP_HEADERS = frozenset({
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "te", "trailers", "transfer-encoding", "upgrade",
+})
+
+# One client for the process lifetime — a per-request client would drop the
+# connection pool and re-handshake on every one of gradio's many small asset
+# fetches.
+#
+# read=None is the load-bearing setting: /queue/data and /heartbeat stay open
+# for as long as the browser tab lives, and any finite read timeout would sever
+# a long inference mid-progress and leave the UI spinning forever.
+_idphoto_client = httpx.AsyncClient(
+    base_url=IDPHOTO_BASE_URL,
+    timeout=httpx.Timeout(connect=10.0, read=None, write=None, pool=10.0),
+    follow_redirects=False,   # relay upstream redirects to the browser as-is
+)
+
+
+@app.api_route(IDPHOTO_PREFIX, methods=["GET", "HEAD"])
+async def idphoto_ui_no_slash():
+    """Send /idphoto/ui to /idphoto/ui/ so gradio's root document resolves."""
+    return RedirectResponse(IDPHOTO_PREFIX + "/", status_code=307)
+
+
+@app.api_route(
+    IDPHOTO_PREFIX + "/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
+)
+async def idphoto_proxy(path: str, request: Request):
+    """Forward one request to ai_idphoto and stream the response back."""
+    headers = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in _HOP_BY_HOP_HEADERS
+        and k.lower() not in ("host", "content-length")
+    }
+    # Load-bearing. gradio's get_root_url() builds the public base URL it embeds
+    # in /config from x-forwarded-host; with no such header it falls back to the
+    # request URL, which here is the internal http://ai_idphoto:7860 — an address
+    # the browser cannot resolve, so the page would load and then fetch nothing.
+    headers["x-forwarded-host"] = request.headers.get("host", "")
+    headers["x-forwarded-proto"] = request.url.scheme
+
+    # Buffered rather than streamed: gradio sends uploads as multipart with a
+    # content-length, and re-streaming would force chunked encoding upstream.
+    # ID photos are single images, so the memory cost is a few MB.
+    body = await request.body()
+
+    upstream = await _idphoto_client.send(
+        _idphoto_client.build_request(
+            request.method,
+            "/" + path,
+            params=request.query_params,
+            headers=headers,
+            content=body or None,
+        ),
+        stream=True,
+    )
+
+    # aiter_raw() passes bytes through undecoded, so content-encoding stays
+    # accurate and must be preserved. content-length is dropped because the
+    # response goes back chunked.
+    return StreamingResponse(
+        upstream.aiter_raw(),
+        status_code=upstream.status_code,
+        headers={
+            k: v for k, v in upstream.headers.items()
+            if k.lower() not in _HOP_BY_HOP_HEADERS and k.lower() != "content-length"
+        },
+        background=BackgroundTask(upstream.aclose),
+    )
+
+
+@app.post("/api/idphoto/switch")
+async def api_idphoto_switch():
+    """Hand the GPU to ai_idphoto via the Router's own exclusivity logic.
+
+    One POST replaces the stop-vLLM-wait-start dance: the Router reads
+    config/gpu-registry.json and stops every other exclusive holder itself.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=180) as client:
+            resp = await client.post(
+                f"{LITELLM_BASE_URL.rstrip('/v1')}/gpu/mode",
+                json={"mode": "idphoto"},
+                headers={"Authorization": f"Bearer {LITELLM_API_KEY}"},
+            )
+            data = resp.json()
+            if resp.status_code >= 400:
+                return JSONResponse(
+                    {"error": data.get("detail", str(data))},
+                    status_code=resp.status_code,
+                )
+            return JSONResponse(data)
+    except httpx.ConnectError:
+        return JSONResponse({"error": "无法连接 Router 服务"}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/idphoto/ready")
+async def api_idphoto_ready():
+    """Whether the gradio server answers — the container can be up seconds early."""
+    try:
+        r = await _idphoto_client.get("/config", timeout=5.0)
+        return JSONResponse({"ready": r.status_code == 200})
+    except Exception:
+        return JSONResponse({"ready": False})
+
+
+@app.get("/idphoto", response_class=HTMLResponse)
+async def idphoto_page():
+    body = """
+<div class="card">
+  <h2>证件照 — HivisionIDPhotos</h2>
+  <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px">
+    上传一张人像照片，自动抠图换底、裁切成标准证件照尺寸（一寸、二寸、护照、签证等），并可生成打印排版。
+    <br>需要独占 GPU：启动前会自动停止正在运行的 vLLM。
+  </p>
+
+  <div id="idp-status" style="margin-bottom:16px">
+    <span class="badge badge-yellow">检测中…</span>
+  </div>
+
+  <div id="idp-prompt" style="display:none;margin-bottom:16px">
+    <div style="padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+      <div id="idp-prompt-msg" style="font-size:14px;margin-bottom:12px"></div>
+      <div id="idp-progress" style="display:none">
+        <div class="vram-bar-wrap" style="width:300px;margin-bottom:8px">
+          <div class="vram-bar" id="idp-progress-bar" style="width:0%"></div>
+        </div>
+        <div id="idp-progress-text" style="font-size:12px;color:var(--text-dim)">准备中…</div>
+      </div>
+      <div id="idp-prompt-btns" style="display:flex;gap:8px">
+        <button class="btn btn-primary" id="idp-btn-start">⚡ 启动证件照服务</button>
+        <a href="/gpu" class="btn btn-ghost">去 GPU 页面</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="idp-frame-card" style="display:none">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h2 style="margin:0">操作界面</h2>
+    <a href="/idphoto/ui/" target="_blank" class="btn btn-ghost" style="font-size:12px;padding:5px 12px">
+      ⧉ 在新标签页打开
+    </a>
+  </div>
+  <!-- Upstream gradio, embedded unmodified. allow= re-delegates the clipboard
+       permissions gr.Image's paste source needs; a cross-document iframe has
+       none by default. Camera is deliberately absent — getUserMedia needs a
+       secure context, which plain-HTTP LAN access is not, iframe or no. -->
+  <iframe id="idp-frame"
+          src=""
+          allow="clipboard-read; clipboard-write"
+          style="width:100%;height:calc(100vh - 260px);min-height:600px;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>
+</div>
+
+<div class="card">
+  <h2>使用说明</h2>
+  <ol style="font-size:13px;color:var(--text-dim);line-height:2;padding-left:20px">
+    <li>服务未启动时，上方会出现「启动证件照服务」按钮，点击后自动让出 GPU（约 20-40 秒）</li>
+    <li>在操作界面上传照片 → 选择尺寸和背景色 → 点击生成</li>
+    <li>右侧输出区可下载标准证件照、高清版和打印排版图</li>
+    <li>用完后请到 <a href="/gpu" style="color:var(--accent)">GPU 控制页面</a>停止本服务，再启动 vLLM</li>
+  </ol>
+  <p style="font-size:12px;color:var(--warn);margin-top:12px">
+    ⚠️ RTX 3090 24 GB 显存独占：抠图模型需约 16 GB，与 vLLM / ComfyUI 不能同时运行。
+  </p>
+  <p style="font-size:12px;color:var(--text-dim);margin-top:8px">
+    容器 <code>ai_idphoto</code> 不再对外暴露 7860 端口，界面统一由本站 <code>:8888/idphoto</code> 代理。
+  </p>
+</div>
+
+<script>
+var IDP_UI = '/idphoto/ui/';
+
+function idpShowUI() {
+  var card = document.getElementById('idp-frame-card');
+  var frame = document.getElementById('idp-frame');
+  // Assign src once — resetting it on every poll would reload the UI and
+  // discard whatever the user had already uploaded.
+  if (!frame.getAttribute('src')) frame.setAttribute('src', IDP_UI);
+  card.style.display = 'block';
+  document.getElementById('idp-prompt').style.display = 'none';
+  document.getElementById('idp-status').innerHTML =
+    '<span class="badge badge-green">运行中</span>'
+    + '<span style="font-size:12px;color:var(--text-dim);margin-left:8px">界面已就绪</span>';
+}
+
+async function idpCheck() {
+  var el = document.getElementById('idp-status');
+  var prompt = document.getElementById('idp-prompt');
+  var msg = document.getElementById('idp-prompt-msg');
+  try {
+    var d = await (await fetch('/status')).json();
+    var containers = d.containers || [];
+    var idp = containers.find(function(c) { return c.name === 'ai_idphoto'; });
+    var vllm = containers.find(function(c) {
+      return c.name.indexOf('ai_vllm_') === 0 && c.status === 'running';
+    });
+
+    if (!idp) {
+      el.innerHTML = '<span class="badge badge-red">未找到容器 ai_idphoto</span>';
+      return;
+    }
+    if (idp.status !== 'running') {
+      el.innerHTML = '<span class="badge badge-red">未启动 (' + idp.status + ')</span>';
+      msg.innerHTML = vllm
+        ? '⚠️ <code>' + vllm.name + '</code> 正在占用显存，启动前会先停止它，预计约 40 秒。'
+        : '显存空闲，直接启动即可，预计约 20 秒。';
+      prompt.style.display = 'block';
+      return;
+    }
+
+    // Container up is not the same as gradio serving — it installs/loads first.
+    var ready = (await (await fetch('/api/idphoto/ready')).json()).ready;
+    if (ready) {
+      idpShowUI();
+    } else {
+      el.innerHTML = '<span class="badge badge-yellow">容器已启动，界面加载中…</span>';
+      setTimeout(idpCheck, 3000);
+    }
+  } catch(e) {
+    el.innerHTML = '<span class="badge badge-yellow">状态检测失败</span>';
+  }
+}
+
+async function idpStart() {
+  var btns = document.getElementById('idp-prompt-btns');
+  var prog = document.getElementById('idp-progress');
+  var bar = document.getElementById('idp-progress-bar');
+  var text = document.getElementById('idp-progress-text');
+
+  btns.style.display = 'none';
+  prog.style.display = 'block';
+  bar.style.width = '15%';
+  bar.style.background = 'var(--warn)';
+  text.textContent = '正在切换 GPU 模式（停止 vLLM → 启动证件照）…';
+
+  try {
+    var d = await (await fetch('/api/idphoto/switch', {method:'POST'})).json();
+    if (d.error) {
+      text.textContent = '切换失败: ' + d.error;
+      btns.style.display = 'flex';
+      return;
+    }
+  } catch(e) {
+    text.textContent = '请求失败: ' + e.message;
+    btns.style.display = 'flex';
+    return;
+  }
+
+  bar.style.width = '50%';
+  bar.style.background = 'var(--accent)';
+
+  var elapsed = 0, maxWait = 120;
+  var poll = setInterval(async function() {
+    elapsed += 3;
+    bar.style.width = Math.min(50 + Math.round(elapsed / maxWait * 50), 98) + '%';
+    text.textContent = '等待界面就绪… ' + elapsed + ' 秒';
+    var ready = false;
+    try { ready = (await (await fetch('/api/idphoto/ready')).json()).ready; } catch(e) {}
+    if (ready) {
+      clearInterval(poll);
+      bar.style.width = '100%';
+      bar.style.background = '#22c55e';
+      text.textContent = '就绪！';
+      idpShowUI();
+    } else if (elapsed >= maxWait) {
+      clearInterval(poll);
+      bar.style.background = 'var(--warn)';
+      text.textContent = '已等待 ' + elapsed + ' 秒仍未就绪。'
+        + '若这是容器重建后的首次启动，pip 依赖可能尚未安装 —— 请查看 '
+        + 'ai_idphoto 日志。';
+      btns.style.display = 'flex';
+    }
+  }, 3000);
+}
+
+document.getElementById('idp-btn-start').addEventListener('click', idpStart);
+idpCheck();
+</script>
+"""
+    return page("证件照", "/idphoto", body)
+
+
 # ── /gpu ─────────────────────────────────────────────────────────────────────
 @app.get("/gpu", response_class=HTMLResponse)
 async def gpu_page():
-    body = """
+    # Inject the GPU registry as JS constants instead of hardcoding container
+    # names in the script below. Concatenated rather than interpolated because
+    # the template is a plain string full of JS braces.
+    registry_js = (
+        "<script>\n"
+        f"const GPU_EXCLUSIVE = {json.dumps(GPU_EXCLUSIVE_CONTAINERS)};\n"
+        f"const GPU_STARTUP_SEC = {json.dumps(GPU_STARTUP_SEC)};\n"
+        f"const GPU_DISPLAY_NAMES = {json.dumps(GPU_DISPLAY_NAMES, ensure_ascii=False)};\n"
+        "// Containers that cannot share the card with `name`.\n"
+        "function gpuConflicts(name, containers) {\n"
+        "  if (!GPU_EXCLUSIVE.includes(name)) return [];\n"
+        "  return containers.filter(function(c) {\n"
+        "    return c.status === 'running' && c.name !== name && GPU_EXCLUSIVE.includes(c.name);\n"
+        "  }).map(function(c) { return c.name; });\n"
+        "}\n"
+        "</script>\n"
+    )
+    body = registry_js + """
 <div id="dependency-alert" style="display:none;"></div>
 
 <div class="card">
@@ -3084,22 +3570,10 @@ async function ctrlContainer(action, name) {
   var toStopForBanner = [];
 
   if (action === 'start') {
-    // VRAM conflict: any vllm <-> comfyui are mutually exclusive
-    // Also vllm containers conflict with each other (only one can run)
-    var mustStop = [];
-    var isVllm = name.startsWith('ai_vllm_');
-    if (isVllm) {
-      // Starting a vllm: stop comfyui AND any other running vllm
-      mustStop = containers.filter(function(c) {
-        return c.status === 'running' && c.name !== name &&
-               (c.name === 'ai_comfyui' || c.name.startsWith('ai_vllm_'));
-      }).map(function(c) { return c.name; });
-    } else if (name === 'ai_comfyui') {
-      // Starting comfyui: stop all vllm containers
-      mustStop = containers.filter(function(c) {
-        return c.status === 'running' && c.name.startsWith('ai_vllm_');
-      }).map(function(c) { return c.name; });
-    }
+    // One card, one holder: every GPU_EXCLUSIVE container conflicts with every
+    // other one (all vllm variants, comfyui, idphoto). Membership comes from
+    // config/gpu-registry.json — see gpuConflicts() at the top of this page.
+    var mustStop = gpuConflicts(name, containers);
     toStopForBanner = mustStop;
 
     if (mustStop.length) {
@@ -3108,17 +3582,15 @@ async function ctrlContainer(action, name) {
       estSec += mustStop.length * 20;
       lines.push('');
     }
-    lines.push('然后启动：  ✅ ' + name);
+    lines.push('然后启动：  ✅ ' + (GPU_DISPLAY_NAMES[name] || name));
 
-    // Estimated startup time
-    var estStart = name.startsWith('ai_vllm_') ? 120 : (name === 'ai_comfyui' ? 60 : 15);
-    estSec += estStart;
+    // Estimated startup time, from the registry's startup_sec
+    estSec += (GPU_STARTUP_SEC[name] || 30);
 
-    if (name.startsWith('ai_vllm_')) {
-      lines.push('');
+    lines.push('');
+    if (estSec >= 90) {
       lines.push('预计时间：约 ' + Math.round(estSec/60) + ' 分钟（模型加载）');
     } else {
-      lines.push('');
       lines.push('预计时间：约 ' + estSec + ' 秒');
     }
   } else {
@@ -3152,20 +3624,10 @@ async function ctrlContainer(action, name) {
     });
   }
 
-  // If starting with conflicts, stop conflicting containers first
+  // If starting with conflicts, stop conflicting containers first.
+  // Same set the confirmation dialog listed — reuse it rather than recompute.
   if (action === 'start') {
-    var isVllm2 = name.startsWith('ai_vllm_');
-    var toStop = [];
-    if (isVllm2) {
-      toStop = containers.filter(function(c) {
-        return c.status === 'running' && c.name !== name &&
-               (c.name === 'ai_comfyui' || c.name.startsWith('ai_vllm_'));
-      }).map(function(c) { return c.name; });
-    } else if (name === 'ai_comfyui') {
-      toStop = containers.filter(function(c) {
-        return c.status === 'running' && c.name.startsWith('ai_vllm_');
-      }).map(function(c) { return c.name; });
-    }
+    var toStop = toStopForBanner;
     for (var i = 0; i < toStop.length; i++) {
       try {
         await fetch('/api/container/stop/' + toStop[i], {method:'POST'});
@@ -4221,9 +4683,9 @@ async def api_models_available():
         return JSONResponse({"models": [], "active_model": None, "error": "Router unavailable"})
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Containers available for log viewing (all managed + infra containers)
-LOG_CONTAINERS = [
-    "ai_vllm_qwen", "ai_vllm_gemma", "ai_whisper", "ai_comfyui",
+# Containers available for log viewing: every GPU container from the registry,
+# plus the always-on infra containers (which have no GPU reservation).
+LOG_CONTAINERS = GPU_MANAGED_CONTAINERS + [
     "ai_router", "ai_router_worker", "ai_router_redis", "ai_webapp",
 ]
 
@@ -4410,7 +4872,14 @@ ROUTER_URL = os.getenv("ROUTER_URL", "http://ai_router:4001")
 
 @app.get("/queue", response_class=HTMLResponse)
 async def get_queue_page():
-    body = """
+    # Container list comes from config/gpu-registry.json, injected rather than
+    # hardcoded. Concatenated because the template below is a plain string.
+    registry_js = (
+        "<script>\n"
+        f"const GPU_MANAGED = {json.dumps(GPU_MANAGED_CONTAINERS)};\n"
+        "</script>\n"
+    )
+    body = registry_js + """
 <style>
   #queue-box { font-family: monospace; white-space: pre-wrap; background: #111; color: #0f0;
               padding: 12px; border-radius: 8px; max-height: 70vh; overflow-y: auto; min-height: 100px; }
@@ -4446,7 +4915,7 @@ async function refreshQueue() {
     const tData = tResp.ok ? await tResp.json() : {};
 
     status.textContent = '队列: ' + (qData.queue_size || 0) + ' 个任务 | ' +
-      ['ai_vllm_qwen', 'ai_vllm_gemma', 'ai_whisper', 'ai_comfyui']
+      GPU_MANAGED
         .map(c => c + ': ' + (tData.containers && tData.containers[c] || '未知'))
         .join(' | ');
 

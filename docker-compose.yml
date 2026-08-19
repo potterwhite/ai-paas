@@ -1,3 +1,23 @@
+# Copyright (c) 2026 PotterWhite
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
   # ============================================================
   # YAML anchor: shared vLLM base config (DRY for multi-model)
   # Each model gets its own service below with a unique profile.
@@ -5,10 +25,16 @@
   # Port 9997 is shared — no conflict since they're mutually exclusive.
   # Router orchestrates switching via Docker SDK start/stop.
   # First-time setup: docker compose --profile llm-xxx up -d vllm-xxx
+  #
+  # ⚠️ Container names, profiles and model paths for every GPU service are
+  # ALSO listed in config/gpu-registry.json — that file is what Router,
+  # ai_webapp and scripts/service.sh read. Compose cannot read it (profiles
+  # must be literal YAML), so when you add or rename a GPU container, edit
+  # both this file and the registry. Nothing else needs touching.
   # ============================================================
 x-vllm-base: &vllm-base
   image: vllm/vllm-openai:latest
-  restart: unless-stopped   # Auto-restart on reboot; Router uses Docker SDK stop/start (not compose)
+  restart: "no"              # Manual start only — Router uses Docker SDK start (not compose)
   ports:
     - "9997:8000"  # External 9997 (backward compat), internal vLLM default 8000
   environment:
@@ -133,14 +159,16 @@ services:
   #    restart: no — must be started manually (Phase 2 /gpu panel or CLI)
   #    Models: ${MODELS_PATH}/comfyui/{checkpoints,vae,...} per ComfyUI layout
   # ============================================================
-  # ⚠️ ComfyUI is isolated via Docker Compose profile "comfyui".
-  # It will NOT start with `docker compose up -d` — must use `docker compose --profile comfyui up -d`.
-  # NEVER run with vLLM simultaneously — GPU VRAM conflict (both need full 24GB).
-  # Profile: comfyui | Port: 8188 | Manual-only, no auto-restart
+  # ⚠️ ComfyUI is GPU-exclusive and Router-scheduled, same as idphoto below.
+  # The profile is a start-time filter, not a lock: it keeps `docker compose
+  # up -d` from booting ComfyUI next to a vLLM. Compose creates the container,
+  # the Router starts/stops it per config/gpu-registry.json.
+  # First creation: `docker compose --profile comfyui up -d comfyui`
+  # Profile: comfyui | Port: 8188 | No auto-restart
   comfyui:
     image: yanwk/comfyui-boot:cu130-slim-v2
     container_name: ai_comfyui
-    profiles: ["comfyui"]   # Only starts with `docker compose --profile comfyui up -d`
+    profiles: ["comfyui"]   # Keep out of COMPOSE_PROFILES — Router schedules this
     restart: "no"
     ports:
       - "8188:8188"
@@ -197,17 +225,19 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ${MODELS_PATH:-./models}:/models
       - ./data/router_db:/app/db  # SQLite task persistence
+      - ./config/gpu-registry.json:/config/gpu-registry.json:ro  # single source of truth for GPU containers
     environment:
       - ROUTER_PORT=4000
       - REDIS_URL=redis://ai_router_redis:6379/0
       - CELERY_BROKER_URL=redis://ai_router_redis:6379/1
       - CELERY_RESULT_BACKEND=redis://ai_router_redis:6379/2
       - DATABASE_URL=sqlite+aiosqlite:///./db/router.db
-      - VLLM_BASE_URL=http://ai_vllm_qwen:8000  # Default; Router uses VLLM_MODELS registry for multi-model
+      - VLLM_BASE_URL=http://ai_vllm_qwen:8000  # Default; Router uses the GPU registry for multi-model
       - WHISPER_BASE_URL=http://ai_whisper:8000
       - COMFYUI_BASE_URL=http://ai_comfyui:8188
       - ROUTER_API_KEY=${LITELLM_MASTER_KEY:-sk-change-me}
       - MODELS_ROOT=/models
+      - GPU_REGISTRY_PATH=/config/gpu-registry.json
     depends_on:
       - router-redis
     networks:
@@ -222,13 +252,15 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker SDK for container control
+      - ./config/gpu-registry.json:/config/gpu-registry.json:ro  # single source of truth for GPU containers
     environment:
       - CELERY_BROKER_URL=redis://ai_router_redis:6379/1
       - CELERY_RESULT_BACKEND=redis://ai_router_redis:6379/2
-      - VLLM_BASE_URL=http://ai_vllm_qwen:8000  # Default; Router uses VLLM_MODELS registry for multi-model
+      - VLLM_BASE_URL=http://ai_vllm_qwen:8000  # Default; Router uses the GPU registry for multi-model
       - WHISPER_BASE_URL=http://ai_whisper:8000
       - COMFYUI_BASE_URL=http://ai_comfyui:8188
       - MODELS_ROOT=/models
+      - GPU_REGISTRY_PATH=/config/gpu-registry.json
     depends_on:
       - router-redis
     networks:
@@ -251,17 +283,20 @@ services:
       - LITELLM_BASE_URL=http://ai_router:4000/v1
       - LITELLM_API_KEY=${LITELLM_MASTER_KEY:-sk-1234}
       - WHISPER_BASE_URL=http://ai_whisper:8000/v1
+      - IDPHOTO_BASE_URL=http://ai_idphoto:7860   # reverse-proxied at /idphoto/ui; 7860 is not published on the host
       - LLM_MODEL=qwen
       - WHISPER_MODEL=Systran/faster-whisper-large-v3
       - MODELS_ROOT=/models                   # path inside container where model weights live
       - COMFYUI_MODELS_HDD=${COMFYUI_MODELS_HDD:-}  # host path for large ComfyUI models
       - VLLM_CONTAINER=ai_vllm_qwen            # default container name; webapp delegates to Router for switching
+      - GPU_REGISTRY_PATH=/config/gpu-registry.json
       - HF_TOKEN=${HF_TOKEN:-}               # optional: HuggingFace token for gated models
       - YTDLP_COOKIES_PATH=/cookies/cookies.txt  # optional: yt-dlp cookie file for YouTube auth
       - MEDIA_ROOT=${MEDIA_ROOT:+/media}         # set to /media only when MEDIA_ROOT is configured
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro  # GPU panel: docker API + nvidia-smi via exec into vllm containers
       - ${MODELS_PATH:-./models}:/models                       # model manager: read/write model weights
+      - ./config/gpu-registry.json:/config/gpu-registry.json:ro  # single source of truth for GPU containers
       - ./data/comfyui_workflows:/comfyui_workflows:ro         # built-in workflow JSONs for browser UI
       - ./data/cookies:/cookies:ro                             # yt-dlp cookies (managed by ai_cookie_manager)
       - ${MEDIA_ROOT:-./data/media}:/media                     # media storage for downloads (NFS or local)
@@ -329,6 +364,87 @@ services:
       - WIKI_MAX_OUTPUT_TOKENS=${WIKI_MAX_OUTPUT_TOKENS:-1600}
     depends_on:
       - router
+    networks:
+      - default
+
+  # ============================================================
+  # 10. HivisionIDPhotos — AI ID photo (manual-install sandbox)
+  #     The image is an EMPTY shell: apt system libs only, zero pip
+  #     packages, no app code. You install everything by hand inside.
+  #     Full walkthrough: services/idphoto/README.md
+  #
+  #     One-time setup:
+  #       1. bash services/idphoto/1-download-weights.sh   (on the host)
+  #       2. docker compose --profile idphoto up -d --build idphoto
+  #       3. docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
+  #       4. docker restart ai_idphoto      -> 0-entrypoint.sh runs 3-run.sh
+  #       5. open http://<host>:8888/idphoto
+  #
+  #     After that, step 2 is done for good: pip packages live in the
+  #     container's writable layer, so 0-entrypoint.sh takes every later
+  #     start straight to the WebUI — a plain restart, or the Router
+  #     starting this container during a GPU-mode switch.
+  #
+  #     Reset: docker compose rm -sf idphoto, then back to step 2. Clone,
+  #     weights and pip cache are host bind mounts and survive.
+  #
+  #     ⚠️ GPU-exclusive: birefnet-v1-lite wants ~16 GB VRAM and vLLM holds
+  #        ~22 GB of this 24 GB card. Registered as an exclusive service in
+  #        config/gpu-registry.json, so the Router stops every vLLM before
+  #        starting this, and stops this before starting a vLLM:
+  #          curl -X POST :4000/gpu/mode -d '{"mode":"idphoto"}'
+  #        or use the /gpu panel in ai_webapp.
+  # ============================================================
+  idphoto:
+    build: ./services/idphoto
+    container_name: ai_idphoto
+    # A profile is NOT a GPU lock — it is a start-time filter. Keeping one here
+    # means `docker compose up -d` only ever CREATES this container, never
+    # starts it, which is precisely what hands scheduling to the Router: the
+    # Router owns start/stop (Docker SDK) and enforces the one-holder-at-a-time
+    # rule from config/gpu-registry.json. Drop the profile and compose would
+    # boot idphoto alongside ai_vllm_qwen and both would fight over 24 GB.
+    # Same pattern as comfyui above. Keep it out of COMPOSE_PROFILES.
+    profiles: ["idphoto"]
+    restart: "no"              # Router is the only thing that starts this
+    # No `ports:` — 7860 is deliberately NOT published on the host. Every WebUI
+    # on this box is reached through ai_webapp on :8888, which reverse-proxies
+    # this container at /idphoto/ui (see services/webapp/main.py). 7860 stays
+    # reachable as ai_idphoto:7860 inside ai_paas_network, which is all the
+    # proxy needs.
+    #
+    # Changing this line forces `--force-recreate`, and pip packages live in the
+    # container's writable layer — so re-run step 2 above afterwards.
+    volumes:
+      # src + pip-cache live under MODELS_PATH (/Development, 1 TB) — keeps the
+      # ~330 MB of weights and the pip cache off the 196 GB system disk.
+      - ${MODELS_PATH:-./models}/idphoto/src:/workspace              # git clone + weights — survive container deletion
+      - ${MODELS_PATH:-./models}/idphoto/pip-cache:/root/.cache/pip  # makes reinstall-after-reset take seconds
+      # Whole directory, NOT individual files: a single-file bind mount is
+      # pinned to the source inode, so editing the file on the host swaps the
+      # inode and the container keeps serving the old contents. Mounting the
+      # directory means host edits take effect with no container restart.
+      - ./services/idphoto:/opt/idphoto:ro                           # our scripts + requirements.txt
+    environment:
+      - TZ=Asia/Hong_Kong
+      # Served behind ai_webapp's reverse proxy, not at the domain root, so
+      # gradio has to know its own public subpath: it prefixes every asset and
+      # file URL it hands the browser with this. app.py's --root_path defaults
+      # to None, and gradio's launch() falls back to GRADIO_ROOT_PATH in that
+      # case — so this needs no change to 3-run.sh.
+      # Must match IDPHOTO_PREFIX in services/webapp/main.py.
+      - GRADIO_ROOT_PATH=/idphoto/ui
+      # Domestic PyPI mirror — onnxruntime-gpu alone is ~200 MB and the
+      # upstream index is slow from here. Env var, so no rebuild needed.
+      - PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+      - PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+    deploy:                    # Exposes the GPU; consumes no VRAM until a process allocates
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     networks:
       - default
 
