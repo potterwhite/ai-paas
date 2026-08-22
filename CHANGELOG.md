@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.1](https://github.com/potterwhite/ai-paas/compare/v2.4.0...v2.4.1) (2026-08-22)
+
+
+### 🐛 Fixed
+
+* replace git-lfs with aria2c for model downloads ([#18](https://github.com/potterwhite/ai-paas/issues/18)) ([f97c5ce](https://github.com/potterwhite/ai-paas/commit/f97c5cea8770e505c065f0ef35f803c24a586a35))
+
 ## [2.4.0](https://github.com/potterwhite/ai-paas/compare/v2.3.0...v2.4.0) (2026-08-19)
 
 
