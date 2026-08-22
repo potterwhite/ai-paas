@@ -67,14 +67,9 @@ main() {
         restart-all)
             restart_all_services
             ;;
-        clean-data)
-            clean_data
-            ;;
-        clean-models)
-            clean_models
-            ;;
-        cleanall)
-            cleanall
+        clean)
+            shift
+            clean "$@"
             ;;
         check-deps)
             check_deps

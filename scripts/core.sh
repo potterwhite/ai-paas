@@ -39,7 +39,7 @@ MODELS_DIR="${MODELS_PATH:-${SCRIPT_DIR}/models}"
 # ── Models symlink ───────────────────────────────────────────────────────────
 # When MODELS_PATH points outside the repo, `prepare` drops a fixed-name symlink
 # at the repo root so models can be browsed without recalling the .env value.
-# `cleanall` removes it again. Git-ignored — see .gitignore.
+# `clean all` removes it again. Git-ignored — see .gitignore.
 MODELS_LINK="${SCRIPT_DIR}/models-link"
 MODELS_LINK_NAME="$(basename "${MODELS_LINK}")"
 

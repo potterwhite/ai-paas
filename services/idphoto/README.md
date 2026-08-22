@@ -12,54 +12,45 @@ AI 证件照。RTX 3090 推理。
 
 ## 装
 
-### 1. clone 上游
+### 1. 代码 + 权重 + 目录(宿主机,一条命令)
 
 ```bash
-mkdir -p /Development/docker/docker-volumes/ai_paas/idphoto/{src,pip-cache}
-git clone https://github.com/Zeyi-Lin/HivisionIDPhotos.git \
-  /Development/docker/docker-volumes/ai_paas/idphoto/src
-
-# pip 缓存必须归 root：pip 只认属主 uid，不看权限位，
-# 属主不是当前用户就直接禁用缓存（重装时白下 300MB+）
-sudo chown -R 0:0 /Development/docker/docker-volumes/ai_paas/idphoto/pip-cache
+./paas-controller.sh prepare
 ```
 
-### 2. 下权重(宿主机)
+Stage 2 就是这个服务:建 `$MODELS_PATH/idphoto/{src,pip-cache}`、clone 上游、把 pip-cache 交给 root(见下)、下两个 onnx 并校验字节数。全部幂等,断了重跑,已经对的文件直接跳过。
+
+只想单独下权重(clone 已经在了):
 
 ```bash
-bash services/idphoto/1-download-weights.sh
+bash services/idphoto/1-download-weights.sh              # 路径取 .env 的 MODELS_PATH
+bash services/idphoto/1-download-weights.sh <clone 路径>  # 或显式指定
 ```
 
-214MB + 105MB,aria2c 16 线程。脚本会校验字节数 —— 必须校验,因为下载重定向失败会写一个 HTML 错误页进去,文件名和扩展名都对,直到 onnxruntime 报个看不懂的错才暴露。
+214MB + 105MB。有 aria2c 就用它(16 线程),没有就退到 curl / wget 单线程 —— 同样的 URL 同样的字节,只是慢。脚本会校验字节数 —— 必须校验,因为下载重定向失败会写一个 HTML 错误页进去,文件名和扩展名都对,直到 onnxruntime 报个看不懂的错才暴露。
 
-### 3. 建容器
+`pip-cache` 必须归 root:pip 只认属主 uid,不看权限位,属主不是 root 就直接禁用缓存(重装时白下 300MB+)。`prepare` 会用 sudo 改属主,所以这一步可能问你密码。
+
+### 2. 建容器 + 装依赖
+
+`prepare` 跑完权重会问你要不要顺手把这两步做掉。答 y 就没有下文了 —— 它会 build、在容器里跑 `2-install.sh`(结尾自己验证 `onnxruntime.get_device()` 必须是 `GPU`),然后**把容器停掉**,因为这张卡是 Router 排他调度的。
+
+答 n 或想手工做:
 
 ```bash
 docker compose --profile idphoto up -d --build idphoto
-```
-
-容器起来后**不会**自动跑 WebUI —— `0-entrypoint.sh` 探测到 pip 包还没装,会打印提示然后 `sleep infinity` 挂着等你装。
-
-### 4. 装依赖(容器内,只做这一次)
-
-```bash
 docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
-```
-
-结尾会自己验证 —— `onnxruntime.get_device()` 必须是 `GPU`,不是就 exit 1。
-
-### 5. 重启,从此交给平台
-
-```bash
 docker restart ai_idphoto
 ```
 
-这次 `0-entrypoint.sh` 探测到依赖齐了,直接 `exec` 到 `3-run.sh` 起 WebUI。
+容器起来后**不会**自动跑 WebUI —— `0-entrypoint.sh` 探测到 pip 包还没装,会打印提示然后 `sleep infinity` 挂着等你装。装完再起,它探测到依赖齐了,直接 `exec` 到 `3-run.sh`。
 
-浏览器打开 **http://192.168.0.19:8888/idphoto**
+### 3. 打开
 
-7860 **不对外发布**。ai_webapp 在 `/idphoto/ui` 反代这个容器，所有 WebUI 统一从 8888 进 ——
-详见下面「入口为什么在 8888」。
+把卡给它(见下面「GPU 归 Router 调度」),然后浏览器开 ai_webapp 的 **`/idphoto`**。
+
+7860 **不对外发布**。ai_webapp 在 `/idphoto/ui` 反代这个容器,所有 WebUI 统一从 webapp 那个端口进 ——
+详见下面「入口为什么不是 7860」。
 
 **装依赖只需要这一次。** 往后开机、Router 调度、`docker restart` 都会自动起 WebUI,不用再手工跑 `2-install.sh` 或 `3-run.sh`。
 
@@ -72,14 +63,17 @@ docker restart ai_idphoto
 这个互斥**不用你自己记** —— `ai_idphoto` 已经注册进 `config/gpu-registry.json`(`exclusive: true`),Router 会在启动它之前自动把 vLLM 和 ComfyUI 停掉:
 
 ```bash
+# 主机和端口按你自己的部署来；密钥就是 .env 里的 LITELLM_MASTER_KEY
+ROUTER=http://localhost:4000
+
 # 切给 idphoto(会停掉当前占卡的服务)
-curl -X POST http://192.168.0.19:4000/v1/gpu/mode \
-  -H "Authorization: Bearer sk-1234" -H "Content-Type: application/json" \
+curl -X POST "$ROUTER/v1/gpu/mode" \
+  -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" -H "Content-Type: application/json" \
   -d '{"mode":"idphoto"}'
 
 # 切回 LLM(会停掉 idphoto)
-curl -X POST http://192.168.0.19:4000/v1/gpu/mode \
-  -H "Authorization: Bearer sk-1234" -H "Content-Type: application/json" \
+curl -X POST "$ROUTER/v1/gpu/mode" \
+  -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" -H "Content-Type: application/json" \
   -d '{"mode":"llm"}'
 ```
 
@@ -157,14 +151,14 @@ onnxruntime-gpu ≤1.18 链 `libcudnn.so.8`,≥1.19 链 `libcudnn.so.9`。我们
 
 ---
 
-## 入口为什么在 8888
+## 入口为什么不是 7860
 
-这个容器**两个端口都不对外发布**。浏览器访问的是 `http://192.168.0.19:8888/idphoto`,
-由 ai_webapp 反代过来:
+这个容器**两个端口都不对外发布**。浏览器访问的是 ai_webapp 上的 `/idphoto`
+(端口看 docker-compose.yml 里 webapp 的 `ports:`),由 ai_webapp 反代过来:
 
 ```
-浏览器 → ai_webapp:8888 /idphoto        → 落地页(容器状态 + 一键切 GPU + iframe)
-       → ai_webapp:8888 /idphoto/ui/*   → 反代 → ai_idphoto:7860/*
+浏览器 → ai_webapp /idphoto        → 落地页(容器状态 + 一键切 GPU + iframe)
+       → ai_webapp /idphoto/ui/*   → 反代 → ai_idphoto:7860/*
 ```
 
 跑的是**上游原版 Gradio,一行没改**,所以功能不会因为反代而缺失。

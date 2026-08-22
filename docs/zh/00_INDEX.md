@@ -14,6 +14,7 @@
 | [`en/1-for-ai/guide.md`](../en/1-for-ai/guide.md) | ⭐ 工作规则、commit 格式、常见陷阱、关键架构事实（英文权威版） |
 | [`zh/1-for-ai/guide.md`](1-for-ai/guide.md) | ⭐ 工作手册（中文翻译版） |
 | [`en/1-for-ai/codebase_map.md`](../en/1-for-ai/codebase_map.md) | ⭐ 完整基础设施地图 — 容器、API、显存、文件。读这个代替扫描目录。 |
+| [`zh/1-for-ai/model_downloads.md`](1-for-ai/model_downloads.md) | ⭐ 模型下载：为什么弃用 git-lfs 改 aria2c、校验和从哪来、怎么加新模型。改 `data_models.sh` / `setup.sh` 前必读。 |
 | [`en/1-for-ai/ai_docs_system_template.md`](../en/1-for-ai/ai_docs_system_template.md) | 构建本文档体系所用的模板参考（非项目文档） |
 
 ---

@@ -44,5 +44,6 @@ curl http://192.168.0.19:4000/v1/health
 |---|---|
 | Rules + commit format | `docs/zh/1-for-ai/guide.md` |
 | Infrastructure map | `docs/zh/1-for-ai/codebase_map.md` |
+| Model download mechanism (aria2c, checksums) | `docs/zh/1-for-ai/model_downloads.md` |
 | Active tasks | `docs/zh/2-progress/NEED_TO_DO.md` |
 | PKB deploy logs | `/Development/docker/docker-volumes/syncthing-docker/ObsidianVault/PARA-Vault/2_AREA/10-Area-Artificial_Intelligence/Project_AI_Marketing_Personal/deploy/` |

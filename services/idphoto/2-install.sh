@@ -38,6 +38,32 @@ REQ=/opt/idphoto/requirements.txt
 [ -f "$REQ" ] || { echo "ERROR: $REQ not found — is services/idphoto mounted at /opt/idphoto?"; exit 1; }
 [ -f /workspace/deploy_api.py ] || { echo "ERROR: /workspace is not the clone. See README.md."; exit 1; }
 
+# pip overwrites files in place, and onnxruntime_pybind11_state...so is mmap'd
+# into the WebUI process. 0-entrypoint.sh execs 3-run.sh, so that process IS
+# pid 1 — the SIGBUS the overwrite triggers takes the container down mid-pip
+# (exit 135) and kills the `docker exec` that ran this script. What it leaves
+# behind is worse than a clean failure: pip unpacks files before it writes
+# dist-info, so the CPU wheel wins the .so while `pip list` still reports
+# onnxruntime-gpu, and `import onnxruntime` quietly returns a CPU build.
+#
+# Install only into an idling container, then. Emptying the writable layer is
+# what makes it idle — the reset this file's header already describes.
+if [ "$(cat /proc/1/comm 2>/dev/null)" = "python" ]; then
+    echo "ERROR: the WebUI is pid 1 here. pip would SIGBUS it and kill the container,"
+    echo "       leaving a silently CPU-only onnxruntime behind."
+    echo
+    echo "  It only starts when the deps import, so they are installed. Check them"
+    echo "  before reinstalling anything:"
+    echo "    docker exec ai_idphoto python3 -c 'import onnxruntime as o; print(o.__version__, o.get_device())'"
+    echo "    # want: 1.19.2 GPU"
+    echo
+    echo "  If you do need to reinstall, recreate the container first:"
+    echo "    docker rm -f ai_idphoto"
+    echo "    docker compose --profile idphoto up -d idphoto"
+    echo "    docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh"
+    exit 1
+fi
+
 # The plain onnxruntime wheel and onnxruntime-gpu unpack into the same
 # onnxruntime/ package directory, and onnxruntime_pybind11_state...so is a
 # single filename — whichever installs last wins. mtcnn-runtime declares
