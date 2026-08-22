@@ -84,7 +84,7 @@ services:
   # 1b. vLLM — Gemma 4 26B A4B (MoE, AWQ 4-bit)
   #     Profile: llm-gemma | Container: ai_vllm_gemma
   #     Model: cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit (~16 GB)
-  #     Download: ./paas-controller.sh prepare vllm --download gemma
+  #     Download: ./paas-controller.sh prepare   (downloads all registered models)
   #     ⚠️ Only ONE vllm instance runs at a time (VRAM exclusive).
   # ============================================================
   vllm-gemma:
@@ -179,6 +179,7 @@ services:
       - ./data/comfyui_extra_model_paths.yaml:/root/ComfyUI/extra_model_paths.yaml
       - ./data/comfyui_workflows:/root/ComfyUI/workflows              # Pre-bundled workflows (git-tracked)
       - ./services/comfyui/setup.sh:/root/ComfyUI/setup.sh:ro        # Auto-setup script (git-tracked)
+      - ./libs:/root/ComfyUI/libs:ro                                 # Bash libs setup.sh sources (git-tracked)
       - ./services/comfyui/user-scripts:/root/user-scripts           # pre-start.sh hook (git-tracked, needs rw for exec)
     environment:
       # No --lowvram: ComfyUI runs exclusively with full 24 GB (vLLM is stopped before ComfyUI starts).
@@ -370,23 +371,30 @@ services:
   # ============================================================
   # 10. HivisionIDPhotos — AI ID photo (manual-install sandbox)
   #     The image is an EMPTY shell: apt system libs only, zero pip
-  #     packages, no app code. You install everything by hand inside.
-  #     Full walkthrough: services/idphoto/README.md
+  #     packages, no app code. Everything is installed into the container
+  #     after it is created. Full walkthrough: services/idphoto/README.md
   #
   #     One-time setup:
+  #       ./paas-controller.sh prepare        # stage 2 does all of it:
+  #         creates ${MODELS_PATH}/idphoto/{src,pip-cache}, clones upstream,
+  #         downloads + size-verifies the two ONNX weights, then offers to
+  #         build this container and run 2-install.sh inside it.
+  #     By hand instead:
   #       1. bash services/idphoto/1-download-weights.sh   (on the host)
   #       2. docker compose --profile idphoto up -d --build idphoto
   #       3. docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh
   #       4. docker restart ai_idphoto      -> 0-entrypoint.sh runs 3-run.sh
-  #       5. open http://<host>:8888/idphoto
+  #       5. open /idphoto on ai_webapp (7860 is not published)
   #
-  #     After that, step 2 is done for good: pip packages live in the
+  #     After that, step 3 is done for good: pip packages live in the
   #     container's writable layer, so 0-entrypoint.sh takes every later
   #     start straight to the WebUI — a plain restart, or the Router
   #     starting this container during a GPU-mode switch.
   #
   #     Reset: docker compose rm -sf idphoto, then back to step 2. Clone,
   #     weights and pip cache are host bind mounts and survive.
+  #     `clean model` / `clean all` DO delete them — re-run prepare, which
+  #     also recreates this container if its mounts went stale.
   #
   #     ⚠️ GPU-exclusive: birefnet-v1-lite wants ~16 GB VRAM and vLLM holds
   #        ~22 GB of this 24 GB card. Registered as an exclusive service in

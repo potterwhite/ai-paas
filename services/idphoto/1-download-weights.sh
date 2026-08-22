@@ -35,7 +35,17 @@
 # ============================================================
 set -euo pipefail
 
-SRC="${1:-/Development/docker/docker-volumes/ai_paas/idphoto/src}"
+# Target defaults to the model store, resolved the same way scripts/core.sh
+# resolves it — MODELS_PATH from the environment, else from .env, else the
+# repo-relative models/ dir — so nothing here hard-codes a machine's layout.
+# Pass a path as $1 to override.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
+if [ -z "${MODELS_PATH:-}" ] && [ -f "${REPO_ROOT}/.env" ]; then
+    # shellcheck disable=SC1091
+    . "${REPO_ROOT}/.env"
+fi
+SRC="${1:-${MODELS_PATH:-${REPO_ROOT}/models}/idphoto/src}"
 
 if [ ! -f "$SRC/deploy_api.py" ]; then
     echo "ERROR: $SRC is not a HivisionIDPhotos clone (no deploy_api.py)."
@@ -43,7 +53,48 @@ if [ ! -f "$SRC/deploy_api.py" ]; then
     exit 1
 fi
 
-command -v aria2c >/dev/null || { echo "ERROR: aria2c not installed."; exit 1; }
+# aria2c is preferred but is not installed by default on most systems, so it
+# must not be a hard requirement. curl and wget download the same bytes from the
+# same URLs over a single stream — correct, just slower on a throttled host.
+DOWNLOADER=""
+for candidate in aria2c curl wget; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        DOWNLOADER="$candidate"
+        break
+    fi
+done
+if [ -z "$DOWNLOADER" ]; then
+    echo "ERROR: need one of aria2c, curl or wget on PATH."
+    exit 1
+fi
+if [ "$DOWNLOADER" = aria2c ]; then
+    echo "==> downloader: aria2c (16 connections)"
+else
+    echo "==> downloader: $DOWNLOADER (single stream — aria2c is ~20x faster here)"
+fi
+
+fetch() {
+    url="$1"; dir="$2"; name="$3"
+    case "$DOWNLOADER" in
+        aria2c)
+            # -o takes a bare filename, so -d carries the directory.
+            aria2c -x16 -s16 -k1M --continue=true --allow-overwrite=true \
+                   -d "$dir" -o "$name" "$url"
+            ;;
+        curl|wget)
+            # Download to .part and rename only on success. Without this an
+            # interrupted transfer sits at the real filename, where it looks
+            # like a complete model to anything that does not size-check it.
+            part="${dir}/${name}.part"
+            if [ "$DOWNLOADER" = curl ]; then
+                curl -fL --retry 3 --retry-delay 2 -o "$part" "$url"
+            else
+                wget -O "$part" "$url"
+            fi
+            mv -f "$part" "${dir}/${name}"
+            ;;
+    esac
+}
 
 # name | dest dir (relative to SRC) | expected bytes | url
 #
@@ -78,9 +129,7 @@ for entry in "${WEIGHTS[@]}"; do
     fi
 
     echo "==> downloading $name"
-    # -o takes a bare filename, so -d carries the directory.
-    aria2c -x16 -s16 -k1M --continue=true --allow-overwrite=true \
-           -d "$dir" -o "$name" "$url"
+    fetch "$url" "$dir" "$name"
 
     have=$(stat -c '%s' "$dest")
     if [ "$have" != "$want" ]; then

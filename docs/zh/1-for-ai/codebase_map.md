@@ -6,7 +6,11 @@
 >
 > **维护规则：** 任何 AI Agent 修改了本文档中列出的文件，必须在同一个 commit/会话中更新本文档对应章节。
 >
-> 最后更新：2026-08-18（idphoto 纳入 Router GPU 调度；新增 `config/gpu-registry.json` 作为 GPU 容器唯一配置源；`0-entrypoint.sh` 让依赖只装一次；`stop_services` 改用 `docker compose stop` 保住容器层）
+> 最后更新：2026-08-22（vLLM 模型下载从 git-lfs 换成 aria2c，与 ComfyUI 统一走 `libs/{http,fileinfo,fetch}.sh`；每模型一个 `_download_<name>()` 清单 + 硬编码 sha256；删除 `_lfs_pending_bytes` / `_prune_lfs_cache` / `_setup_hf_credentials`）
+>
+> 上一次：2026-08-19（`prepare` 新增 Stage 2 idphoto：目录 + clone + 权重全自动，`clean` 已把 idphoto 纳入删除清单；`1-download-weights.sh` 去掉 aria2c 硬依赖与绝对路径）
+>
+> 上上次：2026-08-18（idphoto 纳入 Router GPU 调度；新增 `config/gpu-registry.json` 作为 GPU 容器唯一配置源；`0-entrypoint.sh` 让依赖只装一次；`stop_services` 改用 `docker compose stop` 保住容器层）
 >
 
 ---
@@ -22,7 +26,7 @@
 ├── .env.example                            ← .env 模板
 ├── .gitignore
 ├── paas-controller.sh                      ← 管理脚本（数据清理、服务控制）
-├── models-link → ${MODELS_PATH}            ← 符号链接，`prepare` 建 / `cleanall` 删（git-ignored）
+├── models-link → ${MODELS_PATH}            ← 符号链接，`prepare` 建 / `clean all` 删（git-ignored）
 ├── models/                                 ← 模型权重文件（由 MODELS_PATH 环境变量指定宿主机路径）
 │   ├── qwen2.5-32b-instruct-awq/           ←   生产模型（32B AWQ 4-bit）
 │   ├── gemma-4-26B-A4B/                    ←   Gemma 4 原始权重（BF16，待 AWQ 量化）
@@ -36,7 +40,8 @@
 │   ├── idphoto/                            ←   HivisionIDPhotos 手动安装沙箱（整目录挂 /opt/idphoto:ro）
 │   │   ├── Dockerfile                      ←     空壳镜像（仅 apt 系统库，无 pip 包）
 │   │   ├── requirements.txt                ←     我们修正过的依赖（**不是**上游那份）
-│   │   ├── 1-download-weights.sh           ←     宿主机跑：aria2c 下 2 个 onnx + 校验字节数
+│   │   ├── 1-download-weights.sh           ←     宿主机跑：下 2 个 onnx + 校验字节数
+│   │   │                                          aria2c 优先，无则退 curl / wget；路径默认取 MODELS_PATH
 │   │   ├── 2-install.sh                    ←     容器内跑：装依赖 + 断言 get_device()==GPU
 │   │   ├── 3-run.sh                        ←     容器内跑：起 WebUI（app.py，内网 :7860）
 │   │   └── README.md                       ←     5 步安装 + 两个静默陷阱
@@ -193,12 +198,20 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
     inode 后容器仍读到旧内容。挂目录按路径解析，改完立即生效。
 - 安装/重置（GPU only，无设备切换）：
   ```
-  bash services/idphoto/1-download-weights.sh                    # 宿主机
+  ./paas-controller.sh prepare                                   # Stage 2 一条命令做完
+                                                                 # 建目录 + clone + 下权重
+                                                                 # 并询问是否 build + 2-install
+  ```
+  手工等价步骤：
+  ```
+  bash services/idphoto/1-download-weights.sh                    # 宿主机（路径取 MODELS_PATH）
   docker compose --profile idphoto up -d --build idphoto
   docker exec -it ai_idphoto bash /opt/idphoto/2-install.sh      # 容器内
-  docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh          # 容器内 → 经 8888 反代访问
+  docker exec -it ai_idphoto bash /opt/idphoto/3-run.sh          # 容器内 → 经 webapp 反代访问
   ```
   重来：`docker rm -f ai_idphoto` 后回到第 2 条。
+  ⚠️ `clean model` / `clean all` 会连 `${MODELS_PATH}/idphoto`（clone + 权重 + pip 缓存）一起删 —
+  重跑 `prepare` 恢复；若容器当时在跑，`/workspace` 挂载已失效，`prepare_idphoto()` 会自动重建容器。
 - ⚠️ **上游 clone 永不修改** — `${MODELS_PATH}/idphoto/src` 保持 upstream 干净状态。
   所有修正在 `services/idphoto/requirements.txt`，不动上游那份。
 - ⚠️ **两个静默陷阱**（都不报错，只是结果错，故 `2-install.sh` 结尾必须断言）：
@@ -360,8 +373,31 @@ Model Name:    qwen
 **模型存储路径：** 由 `.env` 中 `MODELS_PATH` 控制（默认 `./models`，当前指向 `/Development/docker/docker-volumes/ai_paas`）。
 
 设置了 `MODELS_PATH` 时，`./paas-controller.sh prepare` 会在仓库根目录建立 `models-link` 符号链接
-指向该路径（`scripts/core.sh` → `ensure_models_link()`），`cleanall` 用 `remove_models_link()` 删除它。
+指向该路径（`scripts/core.sh` → `ensure_models_link()`），`clean all`（经 `purge_all_models()`）用 `remove_models_link()` 删除它。
 链接已加入 `.gitignore`，仅为本机浏览方便 — 容器挂载仍直接使用 `MODELS_PATH` 绝对路径。
+
+**模型下载注册表：** `./paas-controller.sh prepare` **不接受任何参数**，一次准备全部模型：
+
+| 阶段 | 内容 | 大小 |
+|---|---|---|
+| Stage 1 | 全部 vLLM 模型（`VLLM_MODEL_REGISTRY` / `VLLM_MODEL_ORDER`，当前 qwen + gemma） | ~34 GiB |
+| Stage 2 | idphoto：建 `{src,pip-cache}` + clone 上游 + 下 ONNX 权重，并可顺带 build 容器跑 `2-install.sh`（`prepare_idphoto()`） | ~320 MB |
+| Stage 3 | ComfyUI 预置模型（容器内 `setup.sh`） | ~50 GB |
+
+注册表在 `scripts/data_models.sh`，每个条目为 `name → HF repo_id｜本地目录名｜大小`。
+新增模型需要四处改动：`VLLM_MODEL_REGISTRY` 一行、`VLLM_MODEL_ORDER` 一行、一个
+`_download_<name>()` 清单函数、以及 `_vllm_expected_shards` / `_vllm_present_shards`
+里的分片尺寸（本地目录名必须与 `docker-compose.yml` 中对应 `vllm-<name>` 服务的
+`--model` 路径一致）。
+
+**下载方式与 ComfyUI 一致 —— aria2c，不用 git-lfs。** 走 `libs/{http,fileinfo,fetch}.sh`：
+每文件 16 连接、逐文件 SHA-256 校验、断点续传、单个分片失败不放弃其余分片。
+校验和硬编码在清单里（来自 HF tree API 的 `lfs.oid`，即内容的 sha256），**不在运行时拉 API**。
+非 LFS 的小 JSON 走 `libfetch_config` 不校验（API 对这类文件给的 `oid` 是 git blob sha1）。
+`prepare_vllm_info` 只查分片尺寸不查校验和（输出中已注明），避免为一行状态 hash 34 GiB。
+
+> 完整背景、判断依据、新增模型的操作步骤和两个易踩的坑：
+> **[`model_downloads.md`](model_downloads.md)** —— 改这段代码前先读它。
 
 ## 运行时数据目录
 

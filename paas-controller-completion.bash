@@ -26,9 +26,10 @@ _paas_controller_completion() {
     local cur prev words cword
     _init_completion || return
 
-    local commands="status start start-all stop stop-all restart restart-all logs prepare clean-data clean-models cleanall check-deps fix-permissions reset-router rebuild-comfyui disk-usage wiki-vault help"
+    local commands="status start start-all stop stop-all restart restart-all logs prepare clean check-deps fix-permissions reset-router rebuild-comfyui disk-usage wiki-vault help"
     local log_containers="ai_vllm ai_litellm ai_whisper ai_webapp ai_comfyui ai_router ai_router_redis all"
     local prepare_subcommands="comfyui vllm"
+    local clean_subcommands="data model all help"
     local wiki_vault_subcommands="run status reset"
 
     # If first word, suggest commands
@@ -44,6 +45,16 @@ _paas_controller_completion() {
             ;;
         prepare)
             COMPREPLY=( $(compgen -W "$prepare_subcommands" -- "$cur") )
+            ;;
+        clean)
+            # Third level: only `clean model` takes a further argument
+            if [[ $cword -eq 2 ]]; then
+                COMPREPLY=( $(compgen -W "$clean_subcommands" -- "$cur") )
+            elif [[ $cword -eq 3 && "${words[2]}" == "model" ]]; then
+                COMPREPLY=( $(compgen -W "all" -- "$cur") )
+            else
+                COMPREPLY=()
+            fi
             ;;
         wiki-vault)
             if [[ $cword -eq 2 ]]; then

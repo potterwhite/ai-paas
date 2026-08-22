@@ -75,6 +75,37 @@ reset_router() {
     fi
 }
 
+# Show help for the `clean` command family
+show_clean_help() {
+    cat << EOF
+ai-paas cleanup - destructive operations, each guarded by its own confirmation
+
+Usage: $0 clean <target>
+
+Targets:
+    data             Stop services, then wipe all runtime data in data/
+                       KEEPS : data/comfyui_workflows/ (backed up and restored)
+                       KEEPS : git-tracked files under data/ (restored from git)
+    model            Interactive model cleanup: list models, delete by index
+                       NOTE  : the idphoto entry is not just weights — it is the
+                               upstream clone + ONNX weights + pip cache
+    model all        Delete ALL models, then drop the repo-root models symlink
+                       ('prepare' recreates the symlink, and the idphoto tree)
+    all              data + model all, in that order — nothing more
+                       Each stage confirms separately; answer 'n' to skip one
+    help             Show this message
+
+Examples:
+    $0 clean data              # Reset runtime state, keep every model
+    $0 clean model             # Pick which models to delete
+    $0 clean all               # Full factory reset (re-download models afterwards)
+
+Note: all targets stop the affected services first — models and data are
+      bind-mounted into running containers, and deleting a live mount source
+      breaks every write inside it until the container is recreated.
+EOF
+}
+
 # Show help
 show_help() {
     cat << EOF
@@ -100,9 +131,11 @@ Commands:
     check-deps       Check all dependencies (models, config, Docker, GPU)
 
   Data & Models:
-    clean-data       Stop services and clean all runtime data (preserves workflows)
-    clean-models     Interactive model cleanup (selective delete)
-    cleanall         Full cleanup: stops services, cleans data AND all models
+    clean <target>   Cleanup operations (see '$0 clean help')
+                       clean data           Stop services, wipe runtime data (keeps workflows)
+                       clean model          Interactive model cleanup (selective delete)
+                       clean model all      Delete ALL models
+                       clean all            clean data + clean model all
 
   Wiki Management:
     wiki-vault       Unified wiki vault management (init + ingest + status)
@@ -119,11 +152,13 @@ Commands:
   System Maintenance:
     fix-permissions  Fix ownership/permissions on directories (default: data/)
     reset-router     Reset router database and Redis only
-    prepare          Download/manage models
-                     Usage: prepare [comfyui|<model>]
-                       (no args)  Show vLLM models (installed + available to download)
-                       comfyui    Download ComfyUI preset models (~50 GB) via container setup.sh
-                       <model>    Download a vLLM model (e.g. gemma)
+    prepare          Prepare ALL models (no arguments)
+                       Stage 1: all vLLM models — qwen + gemma (~40 GB), resume-safe
+                       Stage 2: idphoto — upstream clone + ONNX weights (~320 MB),
+                                then optionally builds the container and installs its deps
+                       Stage 3: ComfyUI preset models (~50 GB) via container setup.sh
+                     New vLLM models are added to the registry in scripts/data_models.sh
+                     and picked up here automatically.
     rebuild-comfyui  Full ComfyUI rebuild from scratch:
                      wipes comfyui_workdir, re-clones all custom nodes (incl. MuseTalk),
                      re-runs setup.sh. Preserves model weights and git-tracked workflows.
@@ -135,11 +170,9 @@ Examples:
     $0 logs ai_vllm            # Follow logs for vLLM container
     $0 logs all                # Show logs from all containers sequentially
     $0 check-deps              # Verify all dependencies are ready
-    $0 cleanall                # Full cleanup (data + models)
-    $0 prepare                 # Show vLLM models (installed + available to download)
-    $0 prepare comfyui         # Download ComfyUI preset models (~50 GB)
-    $0 prepare gemma           # Download Gemma 4 26B AWQ (~16 GB)
-    $0 clean-data              # Clean runtime data only
+    $0 clean all               # Full cleanup (data + all models)
+    $0 prepare                 # Prepare everything: all vLLM models + ComfyUI presets
+    $0 clean data              # Clean runtime data only
     $0 rebuild-comfyui         # Wipe workdir + re-clone nodes + re-run setup.sh
     $0 wiki-vault status                          # Show all vaults and progress
     $0 wiki-vault run                             # Interactive: select vault, window, bg mode

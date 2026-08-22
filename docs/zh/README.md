@@ -129,6 +129,7 @@ Web 管理界面：`http://localhost:8888`
 | 文档 | 内容 |
 |---|---|
 | [`docs/zh/1-for-ai/codebase_map.md`](1-for-ai/codebase_map.md) | 完整基础设施地图 — 所有容器、端口、配置值 |
+| [`docs/zh/1-for-ai/model_downloads.md`](1-for-ai/model_downloads.md) | 模型下载机制 — 为什么用 aria2c 而非 git-lfs、校验和来源、新增模型步骤 |
 | [`docs/zh/4-for-beginner/quick_start.md`](4-for-beginner/quick_start.md) | 新手首次部署手册 |
 | [`docs/zh/3-highlights/architecture_vision.md`](3-highlights/architecture_vision.md) | 架构决策与理由 |
 
