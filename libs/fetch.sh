@@ -146,7 +146,7 @@ libfetch_model() {
     # a declaration inside the existing-file branch below would not run when that
     # branch is skipped, and the post-download assignments would then silently
     # write globals.
-    local size actual
+    local tmp_size tmp_actual tmp_dest_mtime tmp_sidecar_mtime tmp_stored
 
     if [ -z "$expected" ]; then
         echo "  [FAIL] ${label} — no SHA-256 given (required)" >&2
@@ -160,21 +160,40 @@ libfetch_model() {
     # mid-transfer, and the bytes hash correctly. Either failure discards it --
     # resuming onto a file whose control state was lost cannot be made safe.
     if [ -f "$dest" ] && ! libhttp_unfinished "$dest"; then
-        size="$(libfileinfo_size "$dest")"
+        # Sidecar fast-path: a .sha256 written by a previous successful run
+        # whose mtime is at least as new as the dest file means the dest has
+        # not been overwritten since, so we can trust the stored hash without
+        # re-reading gigabytes from disk.
+        tmp_sidecar="${dest}.sha256"
+        if [ -f "$tmp_sidecar" ]; then
+            tmp_dest_mtime="$(stat -c %Y "$dest" 2>/dev/null || echo 0)"
+            tmp_sidecar_mtime="$(stat -c %Y "$tmp_sidecar" 2>/dev/null || echo 0)"
+            if [ "$tmp_sidecar_mtime" -ge "$tmp_dest_mtime" ]; then
+                tmp_stored="$(cat "$tmp_sidecar" 2>/dev/null)"
+                if [ "$tmp_stored" = "$expected" ]; then
+                    echo "  [skip] ${label} — checksum cached"
+                    LIBFETCH_SKIPPED=$((LIBFETCH_SKIPPED + 1))
+                    return 0
+                fi
+            fi
+        fi
+
+        tmp_size="$(libfileinfo_size "$dest")"
 
         # Announced before the read, not after. Hashing ComfyUI's 26 GB takes
         # 1-2 min during which sha256sum prints nothing, so a silent run is
         # indistinguishable from a hung one -- and the reflex that costs is
         # Ctrl-C, which is how a complete file becomes a partial one. Naming the
         # size lets the reader judge the wait instead of guessing at it.
-        echo "  [check] ${label} — hashing $(libfileinfo_human "$size"), hold on..."
-        actual="$(libfileinfo_sha256 "$dest")"
+        echo "  [check] ${label} — hashing $(libfileinfo_human "$tmp_size"), hold on..."
+        tmp_actual="$(libfileinfo_sha256 "$dest")"
 
-        if [ "$actual" = "$expected" ]; then
+        if [ "$tmp_actual" = "$expected" ]; then
             # Says "matched", not just "skip": the old message could equally have
             # meant the checksum was never consulted, which is the one thing a
             # reader most needs to rule out here.
-            echo "  [skip] ${label} — checksum matched ($(libfileinfo_human "$size"))"
+            echo "  [skip] ${label} — checksum matched ($(libfileinfo_human "$tmp_size"))"
+            echo "$expected" > "${dest}.sha256"
             LIBFETCH_SKIPPED=$((LIBFETCH_SKIPPED + 1))
             return 0
         fi
@@ -185,7 +204,7 @@ libfetch_model() {
         # fixes -- re-download versus correct the caller.
         echo "  [stale] ${label} — checksum MISMATCH, discarding"
         echo "          expected ${expected}"
-        echo "          actual   ${actual:-<unreadable>}"
+        echo "          actual   ${tmp_actual:-<unreadable>}"
         libhttp_discard "$dest"
     fi
 
@@ -250,8 +269,9 @@ libfetch_model() {
         fi
     done
 
-    size="$(libfileinfo_size "$dest")"
-    echo "  [done] ${label} — checksum matched ($(libfileinfo_human "$size"))"
+    tmp_size="$(libfileinfo_size "$dest")"
+    echo "  [done] ${label} — checksum matched ($(libfileinfo_human "$tmp_size"))"
+    echo "$expected" > "${dest}.sha256"
     LIBFETCH_DOWNLOADED=$((LIBFETCH_DOWNLOADED + 1))
     return 0
 }
