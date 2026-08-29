@@ -115,6 +115,19 @@ libfetch_require() {
     libhttp_require || return 1
 }
 
+# libfetch_sidecar_write: persist a verified checksum alongside a downloaded file.
+#
+# $1 -- destination path (the sidecar name is derived as "${1}.sha256")
+# $2 -- label for progress output
+# $3 -- expected SHA-256 to store
+#
+# Always overwrites an existing sidecar -- a re-downloaded file always gets
+# the latest verified hash, regardless of what was there before.
+libfetch_sidecar_write() {
+    echo "$3" > "${1}.sha256"
+    echo "  [cache] ${2} — checksum sidecar saved"
+}
+
 # ---------------------------------------------------------------------------
 # Large files -- checksum required
 # ---------------------------------------------------------------------------
@@ -146,7 +159,7 @@ libfetch_model() {
     # a declaration inside the existing-file branch below would not run when that
     # branch is skipped, and the post-download assignments would then silently
     # write globals.
-    local tmp_size tmp_actual tmp_dest_mtime tmp_sidecar_mtime tmp_stored
+    local tmp_size tmp_actual tmp_dest_mtime tmp_sidecar_mtime tmp_sidecar tmp_stored
 
     if [ -z "$expected" ]; then
         echo "  [FAIL] ${label} — no SHA-256 given (required)" >&2
@@ -193,7 +206,7 @@ libfetch_model() {
             # meant the checksum was never consulted, which is the one thing a
             # reader most needs to rule out here.
             echo "  [skip] ${label} — checksum matched ($(libfileinfo_human "$tmp_size"))"
-            echo "$expected" > "${dest}.sha256"
+            libfetch_sidecar_write "$dest" "$label" "$expected"
             LIBFETCH_SKIPPED=$((LIBFETCH_SKIPPED + 1))
             return 0
         fi
@@ -271,7 +284,7 @@ libfetch_model() {
 
     tmp_size="$(libfileinfo_size "$dest")"
     echo "  [done] ${label} — checksum matched ($(libfileinfo_human "$tmp_size"))"
-    echo "$expected" > "${dest}.sha256"
+    libfetch_sidecar_write "$dest" "$label" "$expected"
     LIBFETCH_DOWNLOADED=$((LIBFETCH_DOWNLOADED + 1))
     return 0
 }
