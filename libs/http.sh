@@ -51,18 +51,30 @@
 # fallback would look identical to the stall it replaces, which is exactly the
 # failure this file exists to remove. Better to stop and say so.
 libhttp_require() {
-    command -v aria2c >/dev/null 2>&1 && return 0
+    if ! command -v aria2c >/dev/null 2>&1; then
+        echo "ERROR: aria2c not found on PATH." >&2
+        echo "" >&2
+        echo "  This script downloads tens of GB and requires aria2c's multi-connection" >&2
+        echo "  transfers. A single-stream wget takes ~32 hours for what aria2c does in" >&2
+        echo "  ~23 minutes, so there is no fallback on purpose." >&2
+        echo "" >&2
+        echo "  Install it:" >&2
+        echo "    dnf install -y aria2      # Rocky / RHEL  (the ai_comfyui image)" >&2
+        echo "    apt-get install -y aria2  # Debian / Ubuntu hosts" >&2
+        return 1
+    fi
 
-    echo "ERROR: aria2c not found on PATH." >&2
-    echo "" >&2
-    echo "  This script downloads tens of GB and requires aria2c's multi-connection" >&2
-    echo "  transfers. A single-stream wget takes ~32 hours for what aria2c does in" >&2
-    echo "  ~23 minutes, so there is no fallback on purpose." >&2
-    echo "" >&2
-    echo "  Install it:" >&2
-    echo "    dnf install -y aria2      # Rocky / RHEL  (the ai_comfyui image)" >&2
-    echo "    apt-get install -y aria2  # Debian / Ubuntu hosts" >&2
-    return 1
+    if ! aria2c --help 2>&1 | grep -q -- '--checksum'; then
+        echo "ERROR: aria2c does not support --checksum." >&2
+        echo "" >&2
+        echo "  This script requires aria2c with --checksum support for" >&2
+        echo "  SHA-256 verification. Your version does not have it." >&2
+        echo "" >&2
+        echo "  Install a recent build: https://aria2.github.io/" >&2
+        return 1
+    fi
+
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -73,10 +85,12 @@ libhttp_require() {
 #
 # $1 -- url
 # $2 -- destination path (created; parent directories are made)
-# $3 -- optional: "quiet" to suppress the progress bar
+# $3 -- optional: SHA-256 hex digest. When non-empty, aria2c verifies the
+#       downloaded file matches this hash via --checksum=sha-256=<digest>.
+# $4 -- optional: "quiet" to suppress the progress bar
 #
-# Returns aria2c's exit status. Says nothing about whether the resulting file is
-# correct -- ask fileinfo.sh that.
+# Returns aria2c's exit status. With $3 set, a checksum mismatch causes aria2c
+# to exit non-zero, which the caller's retry loop handles.
 #
 # aria2c takes a directory and a bare filename rather than a full path, so the
 # destination is split. -o with a path component would be interpreted relative
@@ -98,7 +112,7 @@ libhttp_require() {
 #               required for the retry path: the caller deletes a bad file and
 #               calls again, and without this aria2c refuses rather than rewrite.
 libhttp_get() {
-    local url="$1" dest="$2" quiet="${3:-}"
+    local url="$1" dest="$2" checksum="${3:-}" quiet="${4:-}"
     local dir base
     dir="$(dirname "$dest")"
     base="$(basename "$dest")"
@@ -115,6 +129,7 @@ libhttp_get() {
         --timeout=30
         --lowest-speed-limit=32K
         --file-allocation=none
+        ${checksum:+--checksum=sha-256="$checksum"}
         -d "$dir" -o "$base"
     )
 

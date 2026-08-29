@@ -218,7 +218,7 @@ libfetch_model() {
     local attempt before after stalled=0
     for attempt in $(seq 1 "$LIBFETCH_MAX_ATTEMPTS"); do
         before="$(libfileinfo_allocated "$dest")"
-        libhttp_get "$url" "$dest" && break
+        libhttp_get "$url" "$dest" "$expected" && break
         after="$(libfileinfo_allocated "$dest")"
 
         if [ "$after" -gt "$before" ]; then
@@ -250,23 +250,7 @@ libfetch_model() {
         fi
     done
 
-    # Verified again after download: aria2c reporting success means it received
-    # the bytes it was told to expect, not that they are the right bytes.
-    #
-    # Announced for the same reason as the pre-download hash. This one lands
-    # immediately after aria2c's own progress bar stops moving, which is exactly
-    # where a silent minute reads as "it finished, why is it still sitting there".
     size="$(libfileinfo_size "$dest")"
-    echo "  [check] ${label} — verifying $(libfileinfo_human "$size"), hold on..."
-    actual="$(libfileinfo_sha256 "$dest")"
-    if [ "$actual" != "$expected" ]; then
-        echo "  [FAIL] ${label} — checksum MISMATCH after download"
-        echo "         expected ${expected}"
-        echo "         actual   ${actual:-<unreadable>}"
-        LIBFETCH_FAILED=$((LIBFETCH_FAILED + 1))
-        return 1
-    fi
-
     echo "  [done] ${label} — checksum matched ($(libfileinfo_human "$size"))"
     LIBFETCH_DOWNLOADED=$((LIBFETCH_DOWNLOADED + 1))
     return 0
