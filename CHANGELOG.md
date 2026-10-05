@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.0](https://github.com/potterwhite/ai-paas/compare/v2.4.1...v2.5.0) (2026-10-05)
+
+
+### ✨ Added
+
+* delegate checksum verification to aria2c and cache it in sidecar ([#20](https://github.com/potterwhite/ai-paas/issues/20)) ([f4e1d10](https://github.com/potterwhite/ai-paas/commit/f4e1d101487c93a164af50299e9af772b7a88634))
+
 ## [2.4.1](https://github.com/potterwhite/ai-paas/compare/v2.4.0...v2.4.1) (2026-08-22)
 
 
