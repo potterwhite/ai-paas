@@ -184,7 +184,8 @@ services:
     environment:
       # No --lowvram: ComfyUI runs exclusively with full 24 GB (vLLM is stopped before ComfyUI starts).
       # --lowvram would unnecessarily degrade CogVideoX quality. RTX 3090 = 24 GB exclusive.
-      - CLI_ARGS=--listen 0.0.0.0 --port 8188
+      # --enable-manager: required since ComfyUI v0.42 — Manager is blocked by policy without it.
+      - CLI_ARGS=--listen 0.0.0.0 --port 8188 --enable-manager
       - COMFYUI_MODELS_HDD=/mnt/hdd_models                                    # HDD mount path inside container
       - HF_TOKEN=${HF_TOKEN:-}                                                 # Optional: HuggingFace token for gated models
       - TZ=Asia/Hong_Kong                                                      # Container timezone (Hong Kong)

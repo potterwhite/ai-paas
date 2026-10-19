@@ -43,6 +43,22 @@ if [ ! -f "$SETUP_SCRIPT" ]; then
     exit 1
 fi
 
+# Core pip deps must match the ComfyUI version in the workdir (a git checkout).
+# The image only carries the deps of the version it was built with, and pip
+# installs land in the container layer — wiped by recreate. Installing here
+# makes every boot self-healing: satisfied requirements cost only a few
+# seconds; after an upgrade or recreate this downloads what is missing
+# (without it, main.py crashes on stale packages, e.g. comfy-aimdo).
+echo "[pre-start] Ensuring core pip requirements match workdir version..."
+pip install --root-user-action=ignore -r /root/ComfyUI/requirements.txt
+
+# ComfyUI-Manager is a pip package since v0.42 (--enable-manager); the legacy
+# custom_nodes/ComfyUI-Manager directory is blocked by policy on purpose.
+if [ -f /root/ComfyUI/manager_requirements.txt ]; then
+    echo "[pre-start] Ensuring ComfyUI-Manager pip package..."
+    pip install --root-user-action=ignore -r /root/ComfyUI/manager_requirements.txt
+fi
+
 echo "[pre-start] Running ComfyUI auto-setup (nodes + models)..."
 bash "$SETUP_SCRIPT"
 echo "[pre-start] Setup complete — handing off to ComfyUI."

@@ -138,6 +138,18 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
 - 端口：`8188:8188`
 - restart: `"no"` — 必须手动启动
 - ⚠️ 绝不能在任何 `ai_vllm_*` 运行时启动
+- 核心版本：workdir 是完整 git clone（`data/comfyui_workdir`），当前 **v0.42.1**；
+  升级 = 容器内 `git fetch --tags && git checkout <tag>`，回滚 = checkout 旧 tag
+- `CLI_ARGS` 含 `--enable-manager`：**v0.42 起 ComfyUI-Manager 是 pip 包**
+  （workdir `manager_requirements.txt` → `comfyui_manager`），custom_nodes 里的
+  旧目录版被核心策略禁用是设计行为，不是故障
+- `user-scripts/pre-start.sh` 在 setup.sh 之前先跑
+  `pip install -r requirements.txt`（+ `manager_requirements.txt`）：
+  pip 包装在容器层、recreate 即丢，启动时自愈。**recreate 因此是安全操作**；
+  没有这一步，核心升级后容器会因旧 pip 包启动即崩
+- ⚠️ `setup.sh` 与 `pre-start.sh` 都是**单文件 bind mount**（绑 inode）：
+  宿主机改完必须 `docker restart ai_comfyui` 容器才看到新内容
+  （`libs/` 是目录 mount，不受此限）
 
 **服务：`webapp`（容器：`ai_webapp`）**
 - 镜像：本地构建（`services/webapp/`）
