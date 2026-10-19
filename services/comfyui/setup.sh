@@ -36,7 +36,7 @@
 #   4. SD 1.5           — ~4.0 GiB  (image generation)
 #   5. SDXL Base        — ~6.8 GiB  (image generation, higher quality)
 #   6. Workflow sync    — copy built-in workflows to Browse UI
-#   7. (reserved — see step numbering)
+#   7. MiniMax-H3 FL2VA — ~39 GiB  (DiT + Qwen3-VL encoder + 2 VAE + turbo LoRA)
 #   8. MuseTalk         — ~4.0 GiB  (audio-driven lip sync: weights + whisper + vae + dwpose)
 #
 # Sizes are the real byte counts from the HuggingFace tree API, in the same
@@ -626,10 +626,45 @@ else
     echo "  [skip] No workflow files found in $WF_SRC"
 fi
 
-# ── 7. (reserved) ───────────────────────────────────────────────────────────
+# ── 7. MiniMax-H3 FL2VA (~39 GiB) ───────────────────────────────────────────
 
-step_header 7 "$TOTAL_STEPS" "Reserved — placeholder step"
-echo "  (no action)"
+step_header 7 "$TOTAL_STEPS" "MiniMax-H3 FL2VA — omni video+audio generation (~39 GiB)"
+echo "  Text-to-video and first/last-frame-to-video, 768p 24fps with stereo audio."
+echo "  Source: Comfy-Org/MiniMax-H3 (official ComfyUI single-file packaging)."
+echo ""
+echo "  Quantization choices (see PKB progress-DEPLOY-minimax-h3-phase1-quantization):"
+echo "    - DiT: pruned int8_convrot — AdaLN branches stripped, README-preferred on cu130"
+echo "    - Text encoder: nvfp4_awq — half the size of int8, no Blackwell GPU required"
+echo "    - Video VAE: int8_convrot; audio VAE: fp32 (only variant published)"
+echo "    - Turbo 4-step LoRA: required for usable speed on a 24 GB card"
+echo ""
+
+H3_HF="https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main"
+
+libfetch_model "$H3_HF/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" \
+   "$MODELS_BASE/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" \
+   "H3 FL2VA DiT pruned int8_convrot (~19.5 GiB)" \
+   "e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a" || true
+
+libfetch_model "$H3_HF/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
+   "$MODELS_BASE/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
+   "H3 Qwen3-VL-32B text encoder nvfp4_awq (~14.6 GiB)" \
+   "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6" || true
+
+libfetch_model "$H3_HF/vae/minimax_h3_video_vae_int8_convrot.safetensors" \
+   "$MODELS_BASE/vae/minimax_h3_video_vae_int8_convrot.safetensors" \
+   "H3 video VAE int8_convrot (~2.6 GiB)" \
+   "52a2c8c73583c86e4f41cdcce3a6ad0ea562987bc0bf3d60a0cef5f5c8e60c0e" || true
+
+libfetch_model "$H3_HF/vae/minimax_h3_audio_vae_fp32.safetensors" \
+   "$MODELS_BASE/vae/minimax_h3_audio_vae_fp32.safetensors" \
+   "H3 audio VAE fp32 (~0.6 GiB)" \
+   "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48" || true
+
+libfetch_model "$H3_HF/loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors" \
+   "$MODELS_BASE/loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors" \
+   "H3 FL2V turbo 4-step LoRA (~1.8 GiB)" \
+   "c396a9a06f58399e9df9754b18299818d84a2ddd371724ba48fe4a41221437dc" || true
 
 # ── 8. MuseTalk (~4.0 GiB) ───────────────────────────────────────────────────
 

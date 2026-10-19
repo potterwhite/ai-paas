@@ -6,11 +6,11 @@
 >
 > **维护规则：** 任何 AI Agent 修改了本文档中列出的文件，必须在同一个 commit/会话中更新本文档对应章节。
 >
-> 最后更新：2026-08-22（vLLM 模型下载从 git-lfs 换成 aria2c，与 ComfyUI 统一走 `libs/{http,fileinfo,fetch}.sh`；每模型一个 `_download_<name>()` 清单 + 硬编码 sha256；删除 `_lfs_pending_bytes` / `_prune_lfs_cache` / `_setup_hf_credentials`）
+> 最后更新：2026-10-20（ComfyUI 核心升到 v0.42.1：pre-start.sh 启动自愈 pip 依赖、Manager 改 pip 包 + `--enable-manager`；setup.sh 新增 Step 7 MiniMax-H3 FL2VA 五文件 39 GiB）
 >
-> 上一次：2026-08-19（`prepare` 新增 Stage 2 idphoto：目录 + clone + 权重全自动，`clean` 已把 idphoto 纳入删除清单；`1-download-weights.sh` 去掉 aria2c 硬依赖与绝对路径）
+> 上一次：2026-08-22（vLLM 模型下载从 git-lfs 换成 aria2c，与 ComfyUI 统一走 `libs/{http,fileinfo,fetch}.sh`；每模型一个 `_download_<name>()` 清单 + 硬编码 sha256；删除 `_lfs_pending_bytes` / `_prune_lfs_cache` / `_setup_hf_credentials`）
 >
-> 上上次：2026-08-18（idphoto 纳入 Router GPU 调度；新增 `config/gpu-registry.json` 作为 GPU 容器唯一配置源；`0-entrypoint.sh` 让依赖只装一次；`stop_services` 改用 `docker compose stop` 保住容器层）
+> 上上次：2026-08-19（`prepare` 新增 Stage 2 idphoto：目录 + clone + 权重全自动，`clean` 已把 idphoto 纳入删除清单；`1-download-weights.sh` 去掉 aria2c 硬依赖与绝对路径）
 >
 
 ---
@@ -381,6 +381,7 @@ Model Name:    qwen
 | Qwen 2.5 32B Instruct AWQ | `models/qwen2.5-32b-instruct-awq/` | ~19 GB | ✅ 生产中 |
 | Gemma 4 26B A4B（BF16 原始） | `models/gemma-4-26B-A4B/` | ~50 GB | ⏸ 需 AWQ 量化 |
 | ComfyUI 模型 | `models/comfyui/` | ~31 GB | ⏸ ComfyUI 专用 |
+| MiniMax-H3 FL2VA（ComfyUI） | `models/comfyui/{diffusion_models,text_encoders,vae,loras}/` | ~39 GiB | ✅ 已下载（DiT pruned int8 + Qwen3-VL-32B nvfp4 编码器 + 双 VAE + turbo LoRA） |
 
 **模型存储路径：** 由 `.env` 中 `MODELS_PATH` 控制（默认 `./models`，当前指向 `/Development/docker/docker-volumes/ai_paas`）。
 
@@ -394,7 +395,7 @@ Model Name:    qwen
 |---|---|---|
 | Stage 1 | 全部 vLLM 模型（`VLLM_MODEL_REGISTRY` / `VLLM_MODEL_ORDER`，当前 qwen + gemma） | ~34 GiB |
 | Stage 2 | idphoto：建 `{src,pip-cache}` + clone 上游 + 下 ONNX 权重，并可顺带 build 容器跑 `2-install.sh`（`prepare_idphoto()`） | ~320 MB |
-| Stage 3 | ComfyUI 预置模型（容器内 `setup.sh`） | ~50 GB |
+| Stage 3 | ComfyUI 预置模型（容器内 `setup.sh`，含 Step 7 的 MiniMax-H3 39 GiB） | ~90 GB |
 
 注册表在 `scripts/data_models.sh`，每个条目为 `name → HF repo_id｜本地目录名｜大小`。
 新增模型需要四处改动：`VLLM_MODEL_REGISTRY` 一行、`VLLM_MODEL_ORDER` 一行、一个
