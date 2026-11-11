@@ -36,7 +36,7 @@
 #   4. SD 1.5           — ~4.0 GiB  (image generation)
 #   5. SDXL Base        — ~6.8 GiB  (image generation, higher quality)
 #   6. Workflow sync    — copy built-in workflows to Browse UI
-#   7. MiniMax-H3 FL2VA — ~39 GiB  (DiT + Qwen3-VL encoder + 2 VAE + turbo LoRA)
+#   7. MiniMax-H3 FL2VA — ~41 GiB  (DiT + Qwen3-VL encoder + 2 VAE + 4-step/8-step turbo LoRAs)
 #   8. MuseTalk         — ~4.0 GiB  (audio-driven lip sync: weights + whisper + vae + dwpose)
 #
 # Sizes are the real byte counts from the HuggingFace tree API, in the same
@@ -626,9 +626,9 @@ else
     echo "  [skip] No workflow files found in $WF_SRC"
 fi
 
-# ── 7. MiniMax-H3 FL2VA (~39 GiB) ───────────────────────────────────────────
+# ── 7. MiniMax-H3 FL2VA (~41 GiB) ───────────────────────────────────────────
 
-step_header 7 "$TOTAL_STEPS" "MiniMax-H3 FL2VA — omni video+audio generation (~39 GiB)"
+step_header 7 "$TOTAL_STEPS" "MiniMax-H3 FL2VA — omni video+audio generation (~41 GiB)"
 echo "  Text-to-video and first/last-frame-to-video, 768p 24fps with stereo audio."
 echo "  Source: Comfy-Org/MiniMax-H3 (official ComfyUI single-file packaging)."
 echo ""
@@ -636,7 +636,8 @@ echo "  Quantization choices (see PKB progress-DEPLOY-minimax-h3-phase1-quantiza
 echo "    - DiT: pruned int8_convrot — AdaLN branches stripped, README-preferred on cu130"
 echo "    - Text encoder: nvfp4_awq — half the size of int8, no Blackwell GPU required"
 echo "    - Video VAE: int8_convrot; audio VAE: fp32 (only variant published)"
-echo "    - Turbo 4-step LoRA: required for usable speed on a 24 GB card"
+echo "    - Turbo 4-step LoRA: default, required for usable speed on a 24 GB card"
+echo "    - Turbo 8-step LoRA: optional quality comparison, drives workflow 09"
 echo ""
 
 H3_HF="https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main"
@@ -665,6 +666,14 @@ libfetch_model "$H3_HF/loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.
    "$MODELS_BASE/loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors" \
    "H3 FL2V turbo 4-step LoRA (~1.8 GiB)" \
    "c396a9a06f58399e9df9754b18299818d84a2ddd371724ba48fe4a41221437dc" || true
+
+# The 8-step turbo LoRA is published in the lightx2v community repo, not Comfy-Org.
+H3_TURBO_HF="https://huggingface.co/lightx2v/Minimax-h3-Turbo/resolve/main"
+
+libfetch_model "$H3_TURBO_HF/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors" \
+   "$MODELS_BASE/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors" \
+   "H3 FL2V turbo 8-step LoRA (~1.8 GiB)" \
+   "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e" || true
 
 # ── 8. MuseTalk (~4.0 GiB) ───────────────────────────────────────────────────
 
