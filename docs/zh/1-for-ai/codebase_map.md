@@ -6,11 +6,11 @@
 >
 > **维护规则：** 任何 AI Agent 修改了本文档中列出的文件，必须在同一个 commit/会话中更新本文档对应章节。
 >
-> 最后更新：2026-11-12（setup.sh Step 7 增加 8-step turbo LoRA（lightx2v 源，sha256 硬编码），MiniMax-H3 清单五文件 39 GiB → 六文件 41 GiB；新增工作流 08（4-step）/09（8-step））
+> 最后更新：2026-11-12（ComfyUI 核心 v0.42.1 → v0.45.2，新增 H3-Image 4K 生图支持：setup.sh Step 7 增补 3 文件（image DiT int8 19.5GiB + image VAE 1.1GiB + Qwen3.5 提示词增强 6.8GiB），清单 41 → 68 GiB；新增工作流 08（4-step）/09（8-step）/10（H3-Image t2i））
 >
-> 上一次：2026-10-20（ComfyUI 核心升到 v0.42.1：pre-start.sh 启动自愈 pip 依赖、Manager 改 pip 包 + `--enable-manager`；setup.sh 新增 Step 7 MiniMax-H3 FL2VA 五文件 39 GiB）
+> 上一次：2026-11-12（setup.sh Step 7 增加 8-step turbo LoRA（lightx2v 源，sha256 硬编码），MiniMax-H3 清单五文件 39 GiB → 六文件 41 GiB）
 >
-> 更早：2026-08-22（vLLM 模型下载从 git-lfs 换成 aria2c，与 ComfyUI 统一走 `libs/{http,fileinfo,fetch}.sh`；每模型一个 `_download_<name>()` 清单 + 硬编码 sha256；删除 `_lfs_pending_bytes` / `_prune_lfs_cache` / `_setup_hf_credentials`）
+> 更早：2026-10-20（ComfyUI 核心升到 v0.42.1：pre-start.sh 启动自愈 pip 依赖、Manager 改 pip 包 + `--enable-manager`；setup.sh 新增 Step 7 MiniMax-H3 FL2VA 五文件 39 GiB）
 >
 > 上上次：2026-08-19（`prepare` 新增 Stage 2 idphoto：目录 + clone + 权重全自动，`clean` 已把 idphoto 纳入删除清单；`1-download-weights.sh` 去掉 aria2c 硬依赖与绝对路径）
 >
@@ -140,8 +140,8 @@ YAML 配置使用 anchor `x-vllm-base: &vllm-base` 共享通用设置（image, v
 - 端口：`8188:8188`
 - restart: `"no"` — 必须手动启动
 - ⚠️ 绝不能在任何 `ai_vllm_*` 运行时启动
-- 核心版本：workdir 是完整 git clone（`data/comfyui_workdir`），当前 **v0.42.1**；
-  升级 = 容器内 `git fetch --tags && git checkout <tag>`，回滚 = checkout 旧 tag
+- 核心版本：workdir 是完整 git clone（`data/comfyui_workdir`），当前 **v0.45.2**（v0.45.0 起内置 `MiniMaxH3ImageConditioning`，H3-Image 4K 生图的最低版本要求）；
+  升级 = 容器内 `git fetch --tags && git checkout <tag>`，回滚 = checkout 旧 tag（上一稳定点 v0.42.1）
 - `CLI_ARGS` 含 `--enable-manager`：**v0.42 起 ComfyUI-Manager 是 pip 包**
   （workdir `manager_requirements.txt` → `comfyui_manager`），custom_nodes 里的
   旧目录版被核心策略禁用是设计行为，不是故障
@@ -383,7 +383,7 @@ Model Name:    qwen
 | Qwen 2.5 32B Instruct AWQ | `models/qwen2.5-32b-instruct-awq/` | ~19 GB | ✅ 生产中 |
 | Gemma 4 26B A4B（BF16 原始） | `models/gemma-4-26B-A4B/` | ~50 GB | ⏸ 需 AWQ 量化 |
 | ComfyUI 模型 | `models/comfyui/` | ~31 GB | ⏸ ComfyUI 专用 |
-| MiniMax-H3 FL2VA（ComfyUI） | `models/comfyui/{diffusion_models,text_encoders,vae,loras}/` | ~41 GiB | ✅ 已下载（DiT pruned int8 + Qwen3-VL-32B nvfp4 编码器 + 双 VAE + 4-step/8-step turbo LoRA，对应工作流 08/09） |
+| MiniMax-H3 FL2VA + H3-Image（ComfyUI） | `models/comfyui/{diffusion_models,text_encoders,vae,loras}/` | ~68 GiB | ✅ 已下载（视频六文件 41GiB：DiT int8 + nvfp4 编码器 + 双 VAE + 4/8-step LoRA，工作流 08/09；图像三文件 27GiB：image DiT int8 + image VAE fp16 + Qwen3.5 增强器，nvfp4 编码器同 sha 复用，工作流 10） |
 
 **模型存储路径：** 由 `.env` 中 `MODELS_PATH` 控制（默认 `./models`，当前指向 `/Development/docker/docker-volumes/ai_paas`）。
 
@@ -397,7 +397,7 @@ Model Name:    qwen
 |---|---|---|
 | Stage 1 | 全部 vLLM 模型（`VLLM_MODEL_REGISTRY` / `VLLM_MODEL_ORDER`，当前 qwen + gemma） | ~34 GiB |
 | Stage 2 | idphoto：建 `{src,pip-cache}` + clone 上游 + 下 ONNX 权重，并可顺带 build 容器跑 `2-install.sh`（`prepare_idphoto()`） | ~320 MB |
-| Stage 3 | ComfyUI 预置模型（容器内 `setup.sh`，含 Step 7 的 MiniMax-H3 41 GiB） | ~92 GB |
+| Stage 3 | ComfyUI 预置模型（容器内 `setup.sh`，含 Step 7 的 MiniMax-H3 视频+图像 68 GiB） | ~120 GB |
 
 注册表在 `scripts/data_models.sh`，每个条目为 `name → HF repo_id｜本地目录名｜大小`。
 新增模型需要四处改动：`VLLM_MODEL_REGISTRY` 一行、`VLLM_MODEL_ORDER` 一行、一个

@@ -288,10 +288,10 @@ prepare_comfyui() {
     echo "    4. Stable Diffusion 1.5   — ~4 GB"
     echo "    5. SDXL Base 1.0          — ~7 GB"
     echo "    6. Workflow sync          — copy to Browse UI"
-    echo "    7. MiniMax-H3 FL2VA       — ~41 GB (DiT + encoder + 2 VAE + 4-step/8-step turbo LoRAs)"
+    echo "    7. MiniMax-H3 FL2VA + Image — ~68 GB (video 6 files + 4K image 3 files)"
     echo "    8. MuseTalk               — ~4.2 GB (UNet + Whisper + SD-VAE + DWPose)"
     echo ""
-    echo "  Total  : ~92 GB — existing files with valid checksums are skipped"
+    echo "  Total  : ~120 GB — existing files with valid checksums are skipped"
     echo ""
 
     if ! confirm "Proceed with download?"; then
