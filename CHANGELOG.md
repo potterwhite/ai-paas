@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/potterwhite/ai-paas/compare/v2.5.0...v2.6.0) (2026-11-12)
+
+
+### ✨ Added
+
+* **comfyui:** add MiniMax-H3 video and 4K image generation workflows ([#22](https://github.com/potterwhite/ai-paas/issues/22)) ([e957c88](https://github.com/potterwhite/ai-paas/commit/e957c889af6e7eb42a1670390f22ee0ee9f3b9d4))
+
 ## [2.5.0](https://github.com/potterwhite/ai-paas/compare/v2.4.1...v2.5.0) (2026-10-05)
 
 
