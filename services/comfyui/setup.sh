@@ -36,7 +36,7 @@
 #   4. SD 1.5           — ~4.0 GiB  (image generation)
 #   5. SDXL Base        — ~6.8 GiB  (image generation, higher quality)
 #   6. Workflow sync    — copy built-in workflows to Browse UI
-#   7. (reserved — see step numbering)
+#   7. MiniMax-H3 FL2VA + H3-Image — ~68 GiB (video DiT/encoder/2 VAE/2 LoRAs + image DiT/VAE/prompt enhancer)
 #   8. MuseTalk         — ~4.0 GiB  (audio-driven lip sync: weights + whisper + vae + dwpose)
 #
 # Sizes are the real byte counts from the HuggingFace tree API, in the same
@@ -291,7 +291,7 @@ echo "  Step 3: LivePortrait           — ~504 MiB (5 weights + face detector)"
 echo "  Step 4: Stable Diffusion 1.5   — ~4.0 GiB (image generation)"
 echo "  Step 5: SDXL Base 1.0          — ~6.8 GiB (high-quality image generation)"
 echo "  Step 6: Workflow sync          — copy built-in workflows to Browse UI"
-echo "  Step 7: (skipped — reserved numbering)"
+echo "  Step 7: MiniMax-H3 FL2VA + Image — ~68 GiB (video 6 files + H3-Image 4K text-to-image 3 files)"
 echo "  Step 8: MuseTalk               — ~4.0 GiB (audio lip sync: weights + whisper + vae + dwpose)"
 echo ""
 echo "  Existing files with valid checksums will be skipped (no re-download)."
@@ -626,10 +626,81 @@ else
     echo "  [skip] No workflow files found in $WF_SRC"
 fi
 
-# ── 7. (reserved) ───────────────────────────────────────────────────────────
+# ── 7. MiniMax-H3 FL2VA + H3-Image (~68 GiB) ─────────────────────────────────
 
-step_header 7 "$TOTAL_STEPS" "Reserved — placeholder step"
-echo "  (no action)"
+step_header 7 "$TOTAL_STEPS" "MiniMax-H3 FL2VA + H3-Image — video+audio generation and 4K text-to-image (~68 GiB)"
+echo "  Video: text/first-last-frame to 768p 24fps clips with stereo audio."
+echo "  Image: 4-20 MP text-to-image (sweet spot ~16 MP), needs ComfyUI >= v0.45.0."
+echo "  Sources: Comfy-Org/MiniMax-H3, Comfy-Org/MiniMax-H3-Image, lightx2v turbo LoRAs."
+echo ""
+echo "  Quantization choices (see PKB progress-DEPLOY-minimax-h3-phase1-quantization):"
+echo "    - Video DiT: pruned int8_convrot — AdaLN branches stripped, README-preferred on cu130"
+echo "    - Text encoder: nvfp4_awq — half the size of int8, no Blackwell GPU required"
+echo "    - Video VAE: int8_convrot; audio VAE: fp32 (only variant published)"
+echo "    - Turbo 4-step LoRA: default, required for usable speed on a 24 GB card"
+echo "    - Turbo 8-step LoRA: optional quality comparison, drives workflow 09"
+echo "    - Image DiT: pruned int8_convrot; image VAE: fp16; qwen3.5 9B: optional prompt enhancer"
+echo ""
+
+H3_HF="https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main"
+
+libfetch_model "$H3_HF/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" \
+   "$MODELS_BASE/diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" \
+   "H3 FL2VA DiT pruned int8_convrot (~19.5 GiB)" \
+   "e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a" || true
+
+libfetch_model "$H3_HF/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
+   "$MODELS_BASE/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" \
+   "H3 Qwen3-VL-32B text encoder nvfp4_awq (~14.6 GiB)" \
+   "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6" || true
+
+libfetch_model "$H3_HF/vae/minimax_h3_video_vae_int8_convrot.safetensors" \
+   "$MODELS_BASE/vae/minimax_h3_video_vae_int8_convrot.safetensors" \
+   "H3 video VAE int8_convrot (~2.6 GiB)" \
+   "52a2c8c73583c86e4f41cdcce3a6ad0ea562987bc0bf3d60a0cef5f5c8e60c0e" || true
+
+libfetch_model "$H3_HF/vae/minimax_h3_audio_vae_fp32.safetensors" \
+   "$MODELS_BASE/vae/minimax_h3_audio_vae_fp32.safetensors" \
+   "H3 audio VAE fp32 (~0.6 GiB)" \
+   "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48" || true
+
+libfetch_model "$H3_HF/loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors" \
+   "$MODELS_BASE/loras/minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors" \
+   "H3 FL2V turbo 4-step LoRA (~1.8 GiB)" \
+   "c396a9a06f58399e9df9754b18299818d84a2ddd371724ba48fe4a41221437dc" || true
+
+# The 8-step turbo LoRA is published in the lightx2v community repo, not Comfy-Org.
+H3_TURBO_HF="https://huggingface.co/lightx2v/Minimax-h3-Turbo/resolve/main"
+
+libfetch_model "$H3_TURBO_HF/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors" \
+   "$MODELS_BASE/loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors" \
+   "H3 FL2V turbo 8-step LoRA (~1.8 GiB)" \
+   "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e" || true
+
+# ── 7b. MiniMax-H3-Image — 4K text-to-image (~27.5 GiB new; encoder reused) ──
+# The nvfp4 Qwen3-VL encoder above is byte-identical (same sha256) to the copy
+# listed in the H3-Image repo, so the image pipeline reuses it and downloads
+# only the image DiT, image VAE, and the optional prompt-enhancer LLM.
+H3_IMG_HF="https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main"
+
+libfetch_model "$H3_IMG_HF/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors" \
+   "$MODELS_BASE/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors" \
+   "H3-Image DiT pruned int8_convrot (~19.5 GiB)" \
+   "83eb140f1ff95c068f8a6886e6d3f3d0d4ab2e07bb2fe6d2ef992a51146ee622" || true
+
+libfetch_model "$H3_IMG_HF/vae/minimax_h3_image_vae_fp16.safetensors" \
+   "$MODELS_BASE/vae/minimax_h3_image_vae_fp16.safetensors" \
+   "H3-Image VAE fp16 (~1.1 GiB)" \
+   "d80e9c2e5cfc9844869961ff5a58c9a9e52182df6bfb30b26018dd7f348721af" || true
+
+# Prompt enhancer for the TextGenerateV2 branch of workflow 10. The workflow's
+# switch ships in the OFF position, so this model is never loaded until the
+# user explicitly enables prompt enhancement; bundled so the workflow loads
+# with zero missing-model warnings.
+libfetch_model "$H3_IMG_HF/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors" \
+   "$MODELS_BASE/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors" \
+   "Qwen3.5 9B w4a8 GPTQ prompt enhancer (~6.8 GiB)" \
+   "4cc6a1543ad2061806da46f35f90cadb4801dcba246c44782cf42ec0feb6407c" || true
 
 # ── 8. MuseTalk (~4.0 GiB) ───────────────────────────────────────────────────
 
